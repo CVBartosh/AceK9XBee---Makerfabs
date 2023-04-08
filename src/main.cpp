@@ -36,11 +36,11 @@ boolean newData = false;
 
 void setup() {
 
-    Serial1.begin(9600, SERIAL_8N1, 18, 17);
+    
 
-    Serial.begin(115200);
-    Serial.println("Booted");
-    Serial.println();
+    USBSerial.begin(115200);
+    USBSerial.println("Booted");
+    USBSerial.println();
     lv_init();
     lv_disp_buf = (lv_color_t *)heap_caps_malloc(LVGL_LCD_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     lv_disp_buf2 = (lv_color_t *)heap_caps_malloc(LVGL_LCD_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -57,7 +57,7 @@ void setup() {
     is_initialized_lvgl = true;
     
     // your setup code here:
-    
+    Serial.begin(9600, SERIAL_8N1, 44, 43);
     
 }
 static uint32_t ts = 0;
@@ -65,38 +65,56 @@ static int counter = 0;
 void loop() {
     // your loop code here 
     // currently increments a label every second
-    if(millis()>ts+1000) {
+    if(millis()>ts+5000) {
         ts=millis();
 
+        delay(1000);
+
         // Serial TX "+++"
-        Serial1.print("+++");
-        lv_label_set_text(ui_Label1, "Sending: +++");
-        //delay(5000);
-
-        Serial1.print("ATVR\r");
-        lv_label_set_text(ui_Label1, "Sending: ATVR\r");
-
-        //delay(5000);
-
-        char sz[128]; 
-        char rc;
-        int counter = 0;
+        USBSerial.println("Sending +++");
+        Serial.print("+++");
         
-        while (Serial.available() > 0) {
+        //delay(3000);
+        
+        //USBSerial.println("Sending: ATVR\r");
+        //Serial.print("ATVR\r");
+        //delay(1000);
+
+        if (Serial.available() > 0)
+        {
+            USBSerial.println("Serial Data Received");
+            lv_label_set_text(ui_Label1, "Serial Data Received");
+        }        
+
+        // char sz[128]; 
+        // char rc;
+        // int counter = 0;
+        
+        // if (Serial.available() == true)
+        // {
+
+        //     while (Serial.available() > 0) {
+        //         USBSerial.println("Serial Data Received");
+        //         rc = Serial.read();
+        //         sz[counter] = rc;
+        //         counter++;
+        //     }
             
-            rc = Serial1.read();
-            sz[counter] = rc;
-            counter++;
-        }
-        sz[counter] = '\0';
+        //     sz[counter] = '\0';
 
-        String str = "Received: " + String(sz);
-        char buff[str.length() + 1];
+        //     String str = "Received: " + String(sz);
+        //     char buff[str.length() + 1];
+            
+        //     str.toCharArray(buff,str.length()+1);
+        //     lv_label_set_text(ui_Label1, buff);
+        //     }
+        // else
+        // {
+        //     lv_label_set_text(ui_Label1, "No Data Received");
+        // }
         
-        str.toCharArray(buff,str.length()+1);
-
-        lv_label_set_text(ui_Label1, buff);
     }
+    
     lv_timer_handler();
     delay(3);
 }
