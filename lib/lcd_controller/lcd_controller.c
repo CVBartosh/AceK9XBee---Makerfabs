@@ -81,7 +81,7 @@ esp_err_t lcd_init(size_t max_transfer_bytes)
         .on_color_trans_done = on_color_trans_done_cb,
         .user_ctx = user_ctx,
         .flags = {
-            .swap_color_bytes = true,
+            .swap_color_bytes = false,
             .cs_active_high = false,
             .reverse_color_bits = false,
         },

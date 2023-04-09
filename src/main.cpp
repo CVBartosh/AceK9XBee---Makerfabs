@@ -26,17 +26,15 @@ static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *co
 
 
 //================================================== MY STUFF =========================================
-const byte numChars = 32;
-char receivedChars[numChars];   // an array to store the received data
 
-boolean newData = false;
+void SendString(String str);
 
 //================================================== MY STUFF =========================================*/
-
-
+static volatile int old_ticks = 0;
+static volatile int ticks = 0;
 void setup() {
 
-    
+    attachInterrupt(44,[](){++ticks;},RISING);
 
     USBSerial.begin(115200);
     USBSerial.println("Booted");
@@ -63,9 +61,18 @@ void setup() {
 static uint32_t ts = 0;
 static int counter = 0;
 void loop() {
+    /*if(old_ticks!=ticks) {
+        USBSerial.println("#");
+        old_ticks  =ticks;
+    }*/
     // your loop code here 
     // currently increments a label every second
+    /*if(Serial.available()) {
+        USBSerial.println("#");
+    }
+    else*/
     if(millis()>ts+5000) {
+        
         ts=millis();
 
         delay(1000);
@@ -79,50 +86,45 @@ void loop() {
         //USBSerial.println("Sending: ATVR\r");
         //Serial.print("ATVR\r");
         //delay(1000);
-
-        if (Serial.available() > 0)
-        {
-            USBSerial.println("Serial Data Received");
-            lv_label_set_text(ui_Label1, "Serial Data Received");
-        }        
-
-        // char sz[128]; 
-        // char rc;
-        // int counter = 0;
-        
-        // if (Serial.available() == true)
-        // {
-
-        //     while (Serial.available() > 0) {
-        //         USBSerial.println("Serial Data Received");
-        //         rc = Serial.read();
-        //         sz[counter] = rc;
-        //         counter++;
-        //     }
-            
-        //     sz[counter] = '\0';
-
-        //     String str = "Received: " + String(sz);
-        //     char buff[str.length() + 1];
-            
-        //     str.toCharArray(buff,str.length()+1);
-        //     lv_label_set_text(ui_Label1, buff);
-        //     }
-        // else
-        // {
-        //     lv_label_set_text(ui_Label1, "No Data Received");
-        // }
+        USBSerial.println("Waiting for response.");
+        while(!Serial.available()) {delay(1);}
+        USBSerial.println("Serial Data Received");
+            //lv_label_set_text(ui_Label1, "Serial Data Received");
+        String str = Serial.readStringUntil('\n');
+        lv_textarea_set_text(ui_TextArea1, str.c_str());
+        USBSerial.print("Received: ");
+        USBSerial.println(str.c_str());
+       
         
     }
     
+
+
+
+
+
     lv_timer_handler();
     delay(3);
 }
 
-void ReceiveData();
 
-void ReceiveData(){
+
+void SendString(String str){
     
+    USBSerial.println("Sending: " + str);
+    lv_textarea_set_text(ui_TextArea2,str.c_str());
+    Serial.print(str);
+
+    //delay(3000);
+
+    if (Serial.available() > 0)
+        {
+            String RX = Serial.readString();
+            USBSerial.println("Serial Data Received: " + RX);
+            lv_textarea_set_text(ui_TextArea1,RX.c_str());
+        }  
+
+
 
     
 }
