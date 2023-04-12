@@ -55,8 +55,10 @@ void setup() {
     is_initialized_lvgl = true;
     
     // your setup code here:
-    Serial.begin(9600, SERIAL_8N1, 44, 43);
-    
+    Serial1.begin(9600, SERIAL_8N1, 18, 17);
+    while(Serial1.available()) {
+        Serial1.read();
+    }
 }
 static uint32_t ts = 0;
 static int counter = 0;
@@ -67,7 +69,7 @@ void loop() {
     }*/
     // your loop code here 
     // currently increments a label every second
-    /*if(Serial.available()) {
+    /*if(Serial1.available()) {
         USBSerial.println("#");
     }
     else*/
@@ -77,23 +79,29 @@ void loop() {
 
         delay(1000);
 
-        // Serial TX "+++"
+        // Serial1 TX "+++"
         USBSerial.println("Sending +++");
-        Serial.print("+++");
+        Serial1.print("+++");
         
         //delay(3000);
         
         //USBSerial.println("Sending: ATVR\r");
-        //Serial.print("ATVR\r");
+        //Serial1.print("ATVR\r");
         //delay(1000);
         USBSerial.println("Waiting for response.");
-        while(!Serial.available()) {delay(1);}
-        USBSerial.println("Serial Data Received");
-            //lv_label_set_text(ui_Label1, "Serial Data Received");
-        String str = Serial.readStringUntil('\n');
-        lv_textarea_set_text(ui_TextArea1, str.c_str());
-        USBSerial.print("Received: ");
-        USBSerial.println(str.c_str());
+        int i;
+        for(i=0;i<1000 && !Serial1.available();++i) {delay(1);}
+
+        if(i<1000) {
+            USBSerial.println("Serial1 Data Received");
+                //lv_label_set_text(ui_Label1, "Serial1 Data Received");
+            String str = Serial1.readStringUntil('\n');
+            lv_textarea_set_text(ui_TextArea1, str.c_str());
+            USBSerial.print("Received: ");
+            USBSerial.println(str.c_str());
+        } else {
+            USBSerial.println("Timeout.");
+        }
        
         
     }
@@ -113,14 +121,14 @@ void SendString(String str){
     
     USBSerial.println("Sending: " + str);
     lv_textarea_set_text(ui_TextArea2,str.c_str());
-    Serial.print(str);
+    Serial1.print(str);
 
     //delay(3000);
 
-    if (Serial.available() > 0)
+    if (Serial1.available() > 0)
         {
-            String RX = Serial.readString();
-            USBSerial.println("Serial Data Received: " + RX);
+            String RX = Serial1.readString();
+            USBSerial.println("Serial1 Data Received: " + RX);
             lv_textarea_set_text(ui_TextArea1,RX.c_str());
         }  
 
