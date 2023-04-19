@@ -5,6 +5,7 @@
 #include <lcd_controller.h>
 #include <lvgl.h>
 #include <ui.h>
+
 static lv_disp_draw_buf_t disp_buf;  // contains internal graphic buffer(s) called draw buffer(s)
 static lv_disp_drv_t disp_drv;       // contains callback functions
 static lv_color_t *lv_disp_buf;
@@ -27,15 +28,20 @@ static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *co
 
 //================================================== MY STUFF =========================================
 
+enum InputType  {NONE,USBSERIALCOMMAND};
+InputType ReceivedInput = InputType::NONE;
+
+bool USBSerialCommandReceived = false;
+
 void SendString(String str);
+void ProcessInputs();
 
 //================================================== MY STUFF =========================================*/
-static volatile int old_ticks = 0;
-static volatile int ticks = 0;
+
+
 void setup() {
 
-    attachInterrupt(44,[](){++ticks;},RISING);
-
+    
     USBSerial.begin(115200);
     USBSerial.println("Booted");
     USBSerial.println();
@@ -59,57 +65,66 @@ void setup() {
     while(Serial1.available()) {
         Serial1.read();
     }
+
+
 }
+
+
 static uint32_t ts = 0;
-static int counter = 0;
+
+
 void loop() {
-    /*if(old_ticks!=ticks) {
-        USBSerial.println("#");
-        old_ticks  =ticks;
-    }*/
-    // your loop code here 
-    // currently increments a label every second
-    /*if(Serial1.available()) {
-        USBSerial.println("#");
-    }
-    else*/
-    if(millis()>ts+5000) {
-        
-        ts=millis();
-
-        delay(1000);
-
-        // Serial1 TX "+++"
-        USBSerial.println("Sending +++");
-        Serial1.print("+++");
-        
-        //delay(3000);
-        
-        //USBSerial.println("Sending: ATVR\r");
-        //Serial1.print("ATVR\r");
-        //delay(1000);
-        USBSerial.println("Waiting for response.");
-        int i;
-        for(i=0;i<1000 && !Serial1.available();++i) {delay(1);}
-
-        if(i<1000) {
-            USBSerial.println("Serial1 Data Received");
-                //lv_label_set_text(ui_Label1, "Serial1 Data Received");
-            String str = Serial1.readStringUntil('\n');
-            lv_textarea_set_text(ui_TextArea1, str.c_str());
-            USBSerial.print("Received: ");
-            USBSerial.println(str.c_str());
-        } else {
-            USBSerial.println("Timeout.");
-        }
-       
-        
-    }
     
+    //ProcessInputs();
+
+    // Commands Received over USBSerial
+    if (USBSerial.available())
+    {
+        ReceivedInput = InputType::USBSERIALCOMMAND;
+
+    }
+
+    switch (ReceivedInput)
+    {
+    case InputType::USBSERIALCOMMAND:
+        {
+            USBSerial.println("USB Serial Command Received");
+            
+            String RXstr;
+            RXstr = USBSerial.readStringUntil('\n');
+            while(USBSerial.available()){USBSerial.read();}
+            SendString(RXstr.c_str());
+
+            ReceivedInput = InputType::NONE;
+        }
+        break;
+
+    default:
+        break;
+    }
+
+
+    // if(millis()>ts+5000) {
+        
+    //     ts=millis();
+
+    //     delay(1000);
+
+        
+        
+    // }
 
 
 
 
+
+
+
+
+
+
+    
+    
 
     lv_timer_handler();
     delay(3);
@@ -123,16 +138,30 @@ void SendString(String str){
     lv_textarea_set_text(ui_TextArea2,str.c_str());
     Serial1.print(str);
 
-    //delay(3000);
+    USBSerial.println("Waiting for response.");
 
-    if (Serial1.available() > 0)
-        {
-            String RX = Serial1.readString();
-            USBSerial.println("Serial1 Data Received: " + RX);
-            lv_textarea_set_text(ui_TextArea1,RX.c_str());
-        }  
+    int i;
+    for(i=0;i<1000 && !Serial1.available();++i) {delay(1);}
 
+    if(i<1000) {
+        USBSerial.println("Serial1 Data Received");
+            //lv_label_set_text(ui_Label1, "Serial1 Data Received");
+        String str = Serial1.readStringUntil('\n');
+        lv_textarea_set_text(ui_TextArea1, str.c_str());
+        USBSerial.print("Received: ");
+        USBSerial.println(str.c_str());
+    } else {
+        USBSerial.println("Timeout.");
+        lv_textarea_set_text(ui_TextArea1, "TIMEOUT");
+    }
 
 
     
 }
+
+void ProcessInputs()
+{
+
+
+}
+
