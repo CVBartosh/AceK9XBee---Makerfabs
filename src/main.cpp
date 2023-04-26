@@ -65,6 +65,8 @@ String ReceiveString(String TXStr);
 RXCode SendString(String TXstr);
 bool WaitForOK();
 
+uint32_t DebugCount;
+String PrevDebugStr;
 void DEBUG(String DebugStr);
 
 xbee_dev_t my_xbee;
@@ -574,7 +576,23 @@ bool WaitForOK()
 
 void DEBUG(String DebugStr)
 {
-    USBSerial.println(DebugStr);
+    if (PrevDebugStr.compareTo(DebugStr) != 0)
+    {
+        if (DebugCount == 0)
+        {
+            PrevDebugStr = DebugStr;
+            USBSerial.println(DebugStr);
+        }else
+        {
+            USBSerial.println("REPEAT" + String(DebugCount) + ": " + PrevDebugStr);
+            USBSerial.println(DebugStr);
+            DebugCount = 0;
+        }
+    }
+    else
+    {
+       DebugCount++;
+    }
 }
 
 
