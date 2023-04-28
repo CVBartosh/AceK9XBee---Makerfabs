@@ -154,7 +154,8 @@ int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
 int xbee_ser_read( xbee_serial_t *serial, void FAR *buffer, int bufsize)
 {
     DEBUG("'xbee_ser_read' called");
-    return Serial1.read((char*)buffer,bufsize);
+    Serial1.read((char*)buffer,bufsize);
+    return 0;
 }
 
 
@@ -543,7 +544,7 @@ RXCode SendString(String TXStr){
     DEBUG("OK Recevied");
     return RXCode::OK;
 }
-char recv_buf[16384];
+char recv_buf[128];
 String ReceiveString(String TXStr)
 {   
 
@@ -559,17 +560,21 @@ String ReceiveString(String TXStr)
         DEBUG("TIMED OUT");
         return "TIMEOUT";
     }
-    char ch = 0;
-    *recv_buf=0;
-    char* sz = recv_buf;
-    while(ch!='\r') {
-        int i = xbee_ser_getchar(nullptr);
-        if(-1<i) {
-            ch=i;
-            *sz++ = ch;
-            *sz=0;
+    //xbee_readline(recv_buf,sizeof(recv_buf));
+    *recv_buf='\0';
+    int linelen = 0;
+    do {
+        linelen = xbee_readline(recv_buf, sizeof(recv_buf));
+        if (linelen == -ENODATA) {
+            while(1);
         }
-    }
+        int status = xbee_dev_tick(&my_xbee);
+        if (status < 0) {
+            USBSerial.printf("Error %d from xbee_dev_tick().\n", status);
+            while(1);
+        }
+    } while (linelen == -EAGAIN);
+    //String RXstr = Serial1.readString();
     String RXstr(recv_buf);
     //while(Serial1.available()){Serial1.read();}
 
@@ -590,8 +595,20 @@ bool WaitForOK()
         DEBUG("TIMED OUT");
         return false;
     }
-    while(Serial1.available()<3) { delay(1);}
-    xbee_ser_read(nullptr,recv_buf,sizeof(recv_buf));
+    *recv_buf='\0';
+    int linelen = 0;
+    do {
+        linelen = xbee_readline(recv_buf, sizeof(recv_buf));
+        if (linelen == -ENODATA) {
+            while(1);
+        }
+        int status = xbee_dev_tick(&my_xbee);
+        if (status < 0) {
+            USBSerial.printf("Error %d from xbee_dev_tick().\n", status);
+            while(1);
+        }
+    } while (linelen == -EAGAIN);
+    //xbee_readline(recv_buf,sizeof(recv_buf));
     String RXstr(recv_buf);
     String OKstr = "OK\r";
 
