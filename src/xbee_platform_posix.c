@@ -33,10 +33,11 @@ uint32_t xbee_seconds_timer()
 
 uint32_t xbee_millisecond_timer()
 {
-    struct timeval t;
+    //struct timeval t;
 
-    gettimeofday( &t, NULL);
-    return (uint32_t) (t.tv_sec * 1000 + t.tv_usec / 1000);
+    //gettimeofday( &t, NULL);
+    //return (uint32_t) (t.tv_sec * 1000 + t.tv_usec / 1000);
+    return millis();
 }
 
 ///@}

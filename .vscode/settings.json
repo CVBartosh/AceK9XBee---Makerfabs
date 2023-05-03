@@ -4,6 +4,14 @@
         "random": "cpp",
         "user_data_relay_ace.c": "cpp",
         "byteorder.h": "c",
-        "arduino.h": "c"
+        "arduino.h": "c",
+        "array": "cpp",
+        "deque": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "unordered_set": "cpp",
+        "vector": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp"
     }
 }

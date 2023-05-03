@@ -28,6 +28,7 @@
 
 #ifndef __XBEE_PLATFORM_POSIX
 #define __XBEE_PLATFORM_POSIX
+#include <Arduino.h>
     #include <strings.h>
 
     #define strcmpi         strcasecmp
@@ -69,8 +70,10 @@
 // baudrate member, other fields are platform-specific.
 typedef struct xbee_serial_t {
     uint32_t    baudrate;
-    int         fd;
-    char        device[40];     // /dev/ttySxx
+    void* ser;
+    int8_t pin_tx;
+    int8_t pin_rx;
+    char portname[40];
 } xbee_serial_t;
 
 #ifndef XBEE_SERIAL_MAX_BAUDRATE

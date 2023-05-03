@@ -125,7 +125,7 @@ _xbee_device_debug
 int xbee_dev_init( xbee_dev_t *xbee, const xbee_serial_t *serport,
                                  xbee_is_awake_fn is_awake, xbee_reset_fn reset)
 {
-   int error;
+   int error = 0;
 
    if (! xbee)
    {

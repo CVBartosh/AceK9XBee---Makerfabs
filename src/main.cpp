@@ -43,6 +43,15 @@ static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *co
     lcd_flush(offsetx1, offsety1, offsetx2 , offsety2 , color_map);
 }
 
+//================================================== DAVE'S STUFF =========================================*/
+    static const char PING_REQUEST[] = "\x01PING";  // CSXB_MSG_PING_REQUEST=0x01 followed by arbitrary payload
+    static const char MQTT_START_REQUEST[] = "\x16MQTT_START";  // CSXB_MSG_MQTT_START=0x16 followed by arbitrary payload
+    char cmdstr[256];
+    xbee_serial_t XBEE_SERPORT;
+    int iface = XBEE_USER_DATA_IF_MICROPYTHON;
+    int status;
+//================================================== DAVE'S STUFF =========================================*/
+
 
 //================================================== MY STUFF =========================================
 
@@ -89,7 +98,7 @@ int xbee_ser_invalid( xbee_serial_t *serial)
 {
 
    // DEBUG("'xbee_ser_invalid' called");
-    if (serial && serial->fd >= 0)
+    if (serial)
     {
         return 0;
     }
@@ -124,7 +133,7 @@ const char *xbee_ser_portname( xbee_serial_t *serial)
         return "(invalid)";
     }
 
-    return serial->device;
+    return serial->portname;
 }
 
 
@@ -143,8 +152,9 @@ int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
     {
         DEBUG("Send String Success");
     }*/
-    Serial1.write((char*)buffer,length);
-    USBSerial.write((char*)buffer,length);
+    
+    ((HardwareSerial*)serial->ser)->write((char*)buffer,length);
+   // USBSerial.write((char*)buffer,length);
 
 
     return 0;
@@ -153,13 +163,24 @@ int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
 
 int xbee_ser_read( xbee_serial_t *serial, void FAR *buffer, int bufsize)
 {
-    DEBUG("'xbee_ser_read' called");
-    return Serial1.read((char*)buffer,bufsize);
+    for(int i = 0;i<1000;++i) {
+        if(((HardwareSerial*)serial->ser)->available()>=bufsize) {
+            break;
+        }
+        delay(1);
+    }
+    DEBUG(String("available count: ")+((HardwareSerial*)serial->ser)->available());
+    int avail = min(bufsize,((HardwareSerial*)serial->ser)->available());
+    int result = (int)((HardwareSerial*)serial->ser)->read((char*)buffer,avail);
+    DEBUG("'xbee_ser_read' returned: " + String((char*)buffer,avail));
+    return result;
 }
-
 
 int xbee_ser_putchar( xbee_serial_t *serial, uint8_t ch)
 {
+    if(0==((HardwareSerial*)serial->ser)->availableForWrite()) {
+        return -ENOSPC;
+    }
     DEBUG("'xbee_ser_putchar' called");
     int retval;
 
@@ -182,7 +203,14 @@ int xbee_ser_putchar( xbee_serial_t *serial, uint8_t ch)
 int xbee_ser_getchar( xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_getchar' called");
-    int i= Serial1.read();
+    int i;
+    for(i = 0;i<1000;++i) {
+        if(((HardwareSerial*)serial->ser)->available()) {
+            break;
+        }
+        delay(1);
+    }
+    i= ((HardwareSerial*)serial->ser)->read();
     uint8_t ch = 0;
     if (0>i )
     {
@@ -209,6 +237,7 @@ int xbee_ser_tx_used( xbee_serial_t *serial)
 
 int xbee_ser_tx_flush( xbee_serial_t *serial)
 {
+    ((HardwareSerial*)serial->ser)->flush();
     DEBUG("'xbee_ser_tx_flush' called");
     return 0;
 }
@@ -224,13 +253,14 @@ int xbee_ser_rx_free( xbee_serial_t *serial)
 int xbee_ser_rx_used( xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_rx_used' called");
-   return 0;
+   return ((HardwareSerial*)serial->ser)->available();
 }
 
 
 int xbee_ser_rx_flush( xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_rx_flush' called");
+    ((HardwareSerial*)serial->ser)->flush();
     return 0;
 }
 
@@ -238,6 +268,9 @@ int xbee_ser_rx_flush( xbee_serial_t *serial)
 #define _BAUDCASE(b)        case b: baud = B ## b; break
 int xbee_ser_baudrate( xbee_serial_t *serial, uint32_t baudrate)
 {
+    ((HardwareSerial*)serial->ser)->end();
+    serial->baudrate = baudrate;
+    ((HardwareSerial*)serial->ser)->begin(baudrate,SERIAL_8N1,serial->pin_rx,serial->pin_tx);
     DEBUG("'xbee_ser_baudrate' called");
     return 0;
 }
@@ -245,6 +278,11 @@ int xbee_ser_baudrate( xbee_serial_t *serial, uint32_t baudrate)
 
 int xbee_ser_open( xbee_serial_t *serial, uint32_t baudrate)
 {
+    if(baudrate!=0) {
+        serial->baudrate = baudrate;
+    }
+    ((HardwareSerial*)serial->ser)->begin(serial->baudrate,SERIAL_8N1,serial->pin_rx,serial->pin_tx);
+    //serial->ser.begin() baudrate,serial->pin_tx);
     DEBUG("'xbee_ser_open' called");
     return 0;
 }
@@ -252,6 +290,7 @@ int xbee_ser_open( xbee_serial_t *serial, uint32_t baudrate)
 
 int xbee_ser_close( xbee_serial_t *serial)
 {
+    ((HardwareSerial*)serial->ser)->end();
     DEBUG("'xbee_ser_close' called");
     return 0;
 }
@@ -282,7 +321,7 @@ int xbee_ser_set_rts( xbee_serial_t *serial, int asserted)
 int xbee_ser_get_cts( xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_get_cts' called");
-    return 0;
+    return 1;
 }
 
 ///@}
@@ -396,34 +435,36 @@ void setup() {
 
 //================================================== DAVE'S STUFF =========================================*/
 
-//     static const char PING_REQUEST[] = "\x01PING";  // CSXB_MSG_PING_REQUEST=0x01 followed by arbitrary payload
-//     static const char MQTT_START_REQUEST[] = "\x16MQTT_START";  // CSXB_MSG_MQTT_START=0x16 followed by arbitrary payload
-//     char cmdstr[256];
-//     xbee_serial_t XBEE_SERPORT;
-//     int iface = XBEE_USER_DATA_IF_MICROPYTHON;
-//     int status;
+    // static const char PING_REQUEST[] = "\x01PING";  // CSXB_MSG_PING_REQUEST=0x01 followed by arbitrary payload
+    // static const char MQTT_START_REQUEST[] = "\x16MQTT_START";  // CSXB_MSG_MQTT_START=0x16 followed by arbitrary payload
+    // char cmdstr[256];
+    // xbee_serial_t XBEE_SERPORT;
+    // int iface = XBEE_USER_DATA_IF_MICROPYTHON;
+    // int status;
     
-//     // initialize the serial and device layer for this XBee device
-//     if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
-//         printf("Failed to initialize device.\n");
-//         while(1);
-//     }
+    // // initialize the serial and device layer for this XBee device
+    // DEBUG("Calling xbee_dev_init()");
+    // if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
+    //     DEBUG("Failed to initialize device.\n");
+    //     while(1);
+    // }
 
-//     // Initialize the AT Command layer for this XBee device and have the
-//     // driver query it for basic information (hardware version, firmware version,
-//     // serial number, IEEE address, etc.)
-//     xbee_cmd_init_device(&my_xbee);
-//     printf( "Waiting for driver to query the XBee device...\n");
-//     do {
-//         xbee_dev_tick(&my_xbee);
-//         status = xbee_cmd_query_status(&my_xbee);
-//     } while (status == -EBUSY);
-//     if (status) {
-//         printf( "Error %d waiting for query to complete.\n", status);
-//     }
+    // // Initialize the AT Command layer for this XBee device and have the
+    // // driver query it for basic information (hardware version, firmware version,
+    // // serial number, IEEE address, etc.)
+    // DEBUG("Calling xbee_cmd_init_device");
+    // DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
+    // DEBUG( "Waiting for driver to query the XBee device...\n");
+    // do {
+    //     xbee_dev_tick(&my_xbee);
+    //     status = xbee_cmd_query_status(&my_xbee);
+    // } while (status == -EBUSY);
+    // if (status) {
+    //     DEBUG( "Error: (" + String(status) + ") waiting for query to complete.\n");
+    // }
 
-//     // report on the settings
-//     xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
+    // // report on the settings
+    // xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
 
 //     printf("Enter messages for %s interface:\n",
 //            xbee_user_data_interface(iface));
@@ -507,6 +548,45 @@ void loop() {
             if(USBSerialRXstr.compareTo("T\r") == 0)
             {
                 DEBUG("XBee Test Command Received");
+
+                // initialize the serial and device layer for this XBee device
+                DEBUG("Calling xbee_dev_init()");
+                XBEE_SERPORT.ser = &Serial1;
+                XBEE_SERPORT.baudrate = 9600;
+                strcpy(XBEE_SERPORT.portname,"Serial1");
+                XBEE_SERPORT.pin_rx = 18;
+                XBEE_SERPORT.pin_tx = 17;
+                if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
+                    DEBUG("Failed to initialize device.\n");
+                    while(1);
+                }
+
+                    // Initialize the AT Command layer for this XBee device and have the
+                    // driver query it for basic information (hardware version, firmware version,
+                    // serial number, IEEE address, etc.)
+                    DEBUG("Calling xbee_cmd_init_device");
+                    DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
+                    DEBUG( "Waiting for driver to query the XBee device...\n");
+                    do {
+                        xbee_dev_tick(&my_xbee);
+                        status = xbee_cmd_query_status(&my_xbee);
+                    } while (status == -EBUSY);
+                    if (status) {
+                        DEBUG( "Error: (" + String(status) + ") waiting for query to complete.\n");
+                    }
+
+                    // report on the settings
+                    xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
+                    status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                    status = sendUserDataRelayAPIFrame(&my_xbee, MQTT_START_REQUEST, sizeof PING_REQUEST);
+                           status = xbee_user_data_relay_tx(&my_xbee, iface,
+                                                            cmdstr, strlen(cmdstr));
+                    if (status < 0) {
+                        USBSerial.printf("error %d sending data\n", status);
+                    } else {
+                        USBSerial.printf("sent message id 0x%02X\n", status);
+                        USBSerial.printf("sent message id 0x%s\n", PING_REQUEST);
+                    }
 
 
             }
@@ -620,6 +700,7 @@ bool WaitForOK()
 
 void DEBUG(String DebugStr)
 {
+    return;
     if (PrevDebugStr.compareTo(DebugStr) != 0)
     {
         if (DebugCount == 0)
