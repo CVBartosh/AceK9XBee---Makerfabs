@@ -311,6 +311,12 @@ int xbee_atmode_send_request( xbee_dev_t *xbee, const char FAR *command)
    xbee_serial_t  *serport = &xbee->serport;
    int cmdlen;
 
+   #ifdef XBEE_ATMODE_VERBOSE
+
+   printf( "%s: Enter function:\n", __FUNCTION__);
+
+   #endif
+
    if (xbee == NULL || command == NULL)
    {
       return -EINVAL;
@@ -401,6 +407,13 @@ int xbee_atmode_read_response( xbee_dev_t *xbee, char FAR *response,
    int ch;
    int bytes;
    int retval;
+
+   #ifdef XBEE_ATMODE_VERBOSE
+
+   printf( "%s: Enter function:\n", __FUNCTION__);
+
+   #endif
+
 
    if (xbee == NULL || response == NULL)
    {

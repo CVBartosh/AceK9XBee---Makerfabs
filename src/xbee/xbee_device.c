@@ -232,7 +232,7 @@ void xbee_dev_dump_settings( xbee_dev_t *xbee, uint16_t flags)
 
    // flags parameter included in API for future expansion; unused for now
    XBEE_UNUSED_PARAMETER( flags);
-
+   
    printf( "XBee on %s:\nHV=0x%X  HS=0x%X  VR=0x%" PRIX32 "  IEEE=%" PRIsFAR
       "  net=0x%04x\n\n", xbee_ser_portname( &xbee->serport),
       xbee->hardware_version, xbee->hardware_series, xbee->firmware_version,

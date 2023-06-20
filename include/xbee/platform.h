@@ -45,6 +45,15 @@
 #include <errno.h>
 #include <stddef.h>
 
+//#define XBEE_DEVICE_ENABLE_ATMODE
+
+#define XBEE_WPAN_VERBOSE
+#define XBEE_DEVICE_VERBOSE
+#define XBEE_SERIAL_VERBOSE
+#define XBEE_FIRMWARE_VERBOSE
+#define XBEE_ATMODE_VERBOSE
+
+
 /**
    @name error codes
    These error names are used throughout the library.  Some platforms don't

@@ -21,6 +21,7 @@
 
 
 
+
 //================================================== MY STUFF =========================================
 
 
@@ -141,9 +142,22 @@ int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
 {
     //DEBUG("'xbee_ser_write' called");
     int result;
-    
-
-
+    const char* buf = (const char*)buffer;
+    for(int i=0;i<length;++i ) {
+        Serial.printf("%02x ",(int)buf[i]);
+    }
+    Serial.print("   ");
+    for(int i=0;i<length;++i ) {
+        if(isprint(buf[i])) {
+            Serial.print(buf[i]);
+        } else {
+            Serial.print('.');
+        }
+    }
+    if(length>0)
+    {
+        Serial.println();
+    }
     /*if (SendString((const void)buffer) == RXCode::ERR)
     {
         DEBUG("Send String Failed");
@@ -412,9 +426,6 @@ int sendUserDataRelayAPIFrame(xbee_dev_t *xbee, const char *tx, const int num_tx
 
 void setup() {
     
-    USBSerial.begin(115200);
-    DEBUG("Booted");
-
     lv_init();
     lv_disp_buf = (lv_color_t *)heap_caps_malloc(LVGL_LCD_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     lv_disp_buf2 = (lv_color_t *)heap_caps_malloc(LVGL_LCD_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -432,6 +443,9 @@ void setup() {
 
     // your setup code here:
     Serial1.begin(9600, SERIAL_8N1, 18, 17);
+
+    Serial.begin(115200);
+    DEBUG("Booted");
 
 //================================================== DAVE'S STUFF =========================================*/
 
@@ -512,7 +526,7 @@ void setup() {
 void loop() {
         
     // Commands Received over USBSerial
-    if (USBSerial.available())
+    if (Serial.available())
     {
         DEBUG("USBSerial Input!");
         ReceivedInput = InputType::USBSERIALCOMMAND;
@@ -523,7 +537,7 @@ void loop() {
     case InputType::USBSERIALCOMMAND:
         {
            
-            USBSerialRXstr = USBSerial.readStringUntil('\n');
+            USBSerialRXstr = Serial.readStringUntil('\n');
             DEBUG("USB Serial Command Received: " + USBSerialRXstr);
 
 
@@ -577,16 +591,43 @@ void loop() {
 
                     // report on the settings
                     xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
-                    status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                    status = sendUserDataRelayAPIFrame(&my_xbee, MQTT_START_REQUEST, sizeof PING_REQUEST);
-                           status = xbee_user_data_relay_tx(&my_xbee, iface,
-                                                            cmdstr, strlen(cmdstr));
-                    if (status < 0) {
-                        USBSerial.printf("error %d sending data\n", status);
-                    } else {
-                        USBSerial.printf("sent message id 0x%02X\n", status);
-                        USBSerial.printf("sent message id 0x%s\n", PING_REQUEST);
+
+                    
+                    
+                    while (1)
+                    {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        //return -1;
                     }
+
+                    delay(3000);
+                    status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                    if (status < 0) 
+                    {
+                        printf("error %d sending data\n", status);
+                    }
+                    else 
+                    {
+
+                    }
+
+                    printf("sent message id 0x%02X\n", status);
+                    printf("sent message id 0x%s\n", PING_REQUEST);
+                    }
+
+                    // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                    // status = sendUserDataRelayAPIFrame(&my_xbee, MQTT_START_REQUEST, sizeof PING_REQUEST);
+                    //        status = xbee_user_data_relay_tx(&my_xbee, iface,
+                    //                                         cmdstr, strlen(cmdstr));
+                    // if (status < 0) {
+                    //     USBSerial.printf("error %d sending data\n", status);
+                    // } else {
+                    //     USBSerial.printf("sent message id 0x%02X\n", status);
+                    //     USBSerial.printf("sent message id 0x%s\n", PING_REQUEST);
+                    // }
 
 
             }
@@ -700,17 +741,17 @@ bool WaitForOK()
 
 void DEBUG(String DebugStr)
 {
-    return;
+    
     if (PrevDebugStr.compareTo(DebugStr) != 0)
     {
         if (DebugCount == 0)
         {
             PrevDebugStr = DebugStr;
-            USBSerial.println(DebugStr);
+            Serial.println(DebugStr);
         }else
         {
-            USBSerial.println("REPEAT" + String(DebugCount) + ": " + PrevDebugStr);
-            USBSerial.println(DebugStr);
+            Serial.println("REPEAT" + String(DebugCount) + ": " + PrevDebugStr);
+            Serial.println(DebugStr);
             DebugCount = 0;
         }
     }
