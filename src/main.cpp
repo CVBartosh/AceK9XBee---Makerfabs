@@ -442,7 +442,7 @@ void setup() {
     is_initialized_lvgl = true;
 
     // your setup code here:
-    Serial1.begin(9600, SERIAL_8N1, 18, 17);
+    Serial1.begin(115200, SERIAL_8N1, 18, 17);
 
     Serial.begin(115200);
     DEBUG("Booted");
@@ -566,7 +566,7 @@ void loop() {
                 // initialize the serial and device layer for this XBee device
                 DEBUG("Calling xbee_dev_init()");
                 XBEE_SERPORT.ser = &Serial1;
-                XBEE_SERPORT.baudrate = 9600;
+                XBEE_SERPORT.baudrate = 115200;
                 strcpy(XBEE_SERPORT.portname,"Serial1");
                 XBEE_SERPORT.pin_rx = 18;
                 XBEE_SERPORT.pin_tx = 17;
