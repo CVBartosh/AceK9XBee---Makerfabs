@@ -33,12 +33,9 @@ enum ACE_BOOL : uint32_t {
 // ====== Command Protocol ======
     // each communication transaction begins with a command id (int)
     // followed by 1 packet as indicated by the command field
-
-
+    // and then CRC-32 4-byte unsigned int followed by the payload
 struct connect_packet
 {
-    constexpr static const COMMAND_ID cmd_ID = COMMAND_ID::CONNECT;
-    // uint32_t crc; (prepended to packet)      // CRC | 4 bytes | 32-bit unsigned word  | Indicates the CRC-32 value for the packet
     char unitname[16];                          // unitname | 16 bytes | string padded by zeros | Unique Unit Name
     char host[128];                             // host | 128 bytes | string padded by zeros | Server Host URL
     uint32_t port;                              // port | 4 bytes | 32-bit unsigned word | TCP/IP port #
@@ -57,6 +54,7 @@ struct acknowledge_packet {
     // uint32_t crc; (prepended to packet)      // CRC | 4 bytes | 32-bit unsigned word  | Indicates the CRC-32 value for the packet
     STATUS_CODE status;                         // status | STATUS_CODE 32-bit unsigned word | 0 = Success, Negative Value = Various Errors
 };
+
 
 struct data_packet
 {

@@ -5,7 +5,7 @@
 #include <lcd_controller.h>
 #include <lvgl.h>
 #include <ui.h>
-
+#include <interface.h>
 //================================================== MY STUFF =========================================
 #include <ctype.h>
 #include <stdio.h>
@@ -94,7 +94,61 @@ xbee_dev_t my_xbee;
 #define XBEE_SER_CHECK(ptr) \
     do { if (xbee_ser_invalid(ptr)) return -EINVAL; } while (0)
 
+void dump_hex (
+    const void * addr,
+    size_t len,
+    int perLine = 16
+) {
+    // Silently ignore silly per-line values.
 
+    if (perLine < 4 || perLine > 64) perLine = 16;
+
+    int i;
+    unsigned char buff[perLine+2];
+    const unsigned char * pc = (const unsigned char *)addr;
+
+    // Length checks.
+
+    if (len == 0) {
+        return;
+    }
+    // Process every byte in the data.
+
+    for (i = 0; i < len; i++) {
+        // Multiple of perLine means new or first line (with line offset).
+         if ((i % perLine) == 0) {
+            // Only print previous-line ASCII buffer for lines beyond first.
+
+            if (i != 0) Serial.printf ("  %s\n", buff);
+
+            // Output the offset of current line.
+
+            Serial.printf ("  %04x ", i);
+        }
+        
+
+        Serial.printf (" %02x", pc[i]);
+       
+        // And buffer a printable ASCII character for later.
+
+        if ((pc[i] < 0x20) || (pc[i] > 0x7e)) // isprint() may be better.
+            buff[i % perLine] = '.';
+        else
+            buff[i % perLine] = pc[i];
+        buff[(i % perLine) + 1] = '\0';
+    }
+
+    // Pad out last line if not exactly perLine characters.
+
+    while ((i % perLine) != 0) {
+        Serial.printf ("   ");
+        i++;
+    }
+
+    // And print the final ASCII buffer.
+
+    Serial.printf ("  %s\n", buff);
+}
 int xbee_ser_invalid( xbee_serial_t *serial)
 {
 
@@ -140,24 +194,11 @@ const char *xbee_ser_portname( xbee_serial_t *serial)
 
 int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
 {
+    //Serial.println("ser_write");
     //DEBUG("'xbee_ser_write' called");
     int result;
     const char* buf = (const char*)buffer;
-    for(int i=0;i<length;++i ) {
-        Serial.printf("%02x ",(int)buf[i]);
-    }
-    Serial.print("   ");
-    for(int i=0;i<length;++i ) {
-        if(isprint(buf[i])) {
-            Serial.print(buf[i]);
-        } else {
-            Serial.print('.');
-        }
-    }
-    if(length>0)
-    {
-        Serial.println();
-    }
+    dump_hex(buffer,length,16);
     /*if (SendString((const void)buffer) == RXCode::ERR)
     {
         DEBUG("Send String Failed");
@@ -423,6 +464,18 @@ int sendUserDataRelayAPIFrame(xbee_dev_t *xbee, const char *tx, const int num_tx
     }
     return 0;
 }
+uint32_t crc32(uint32_t crc, unsigned char *buf, size_t len)
+{
+    int k;
+
+    crc = ~crc;
+    while (len--) {
+        crc ^= *buf++;
+        for (k = 0; k < 8; k++)
+            crc = crc & 1 ? (crc >> 1) ^ 0xedb88320 : crc >> 1;
+    }
+    return ~crc;
+}
 
 void setup() {
     
@@ -440,84 +493,16 @@ void setup() {
     lv_disp_drv_register(&disp_drv);
     ui_init();
     is_initialized_lvgl = true;
+   
 
     // your setup code here:
     Serial1.begin(115200, SERIAL_8N1, 18, 17);
 
     Serial.begin(115200);
+ 
     DEBUG("Booted");
 
-//================================================== DAVE'S STUFF =========================================*/
 
-    // static const char PING_REQUEST[] = "\x01PING";  // CSXB_MSG_PING_REQUEST=0x01 followed by arbitrary payload
-    // static const char MQTT_START_REQUEST[] = "\x16MQTT_START";  // CSXB_MSG_MQTT_START=0x16 followed by arbitrary payload
-    // char cmdstr[256];
-    // xbee_serial_t XBEE_SERPORT;
-    // int iface = XBEE_USER_DATA_IF_MICROPYTHON;
-    // int status;
-    
-    // // initialize the serial and device layer for this XBee device
-    // DEBUG("Calling xbee_dev_init()");
-    // if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
-    //     DEBUG("Failed to initialize device.\n");
-    //     while(1);
-    // }
-
-    // // Initialize the AT Command layer for this XBee device and have the
-    // // driver query it for basic information (hardware version, firmware version,
-    // // serial number, IEEE address, etc.)
-    // DEBUG("Calling xbee_cmd_init_device");
-    // DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
-    // DEBUG( "Waiting for driver to query the XBee device...\n");
-    // do {
-    //     xbee_dev_tick(&my_xbee);
-    //     status = xbee_cmd_query_status(&my_xbee);
-    // } while (status == -EBUSY);
-    // if (status) {
-    //     DEBUG( "Error: (" + String(status) + ") waiting for query to complete.\n");
-    // }
-
-    // // report on the settings
-    // xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
-
-//     printf("Enter messages for %s interface:\n",
-//            xbee_user_data_interface(iface));
-
-//     while (1) {
-//         int linelen;
-//         do {
-//             linelen = xbee_readline(cmdstr, sizeof cmdstr);
-//             if (linelen == -ENODATA) {
-//                 while(1);
-//             }
-//             status = xbee_dev_tick(&my_xbee);
-//             if (status < 0) {
-//                printf("Error %d from xbee_dev_tick().\n", status);
-//                while(1);
-//             }
-//         } while (linelen == -EAGAIN);
-
-//         // blank line changes to next interface
-//     //    if (*cmdstr == '\0') 
-//     //	{
-//     //        iface = XBEE_USER_DATA_IF_MICROPYTHON;
-//     //        printf("Enter messages for %s interface:\n",
-//     //               xbee_user_data_interface(iface));
-//     //        continue;
-//     //    }
-//  status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-//  status = sendUserDataRelayAPIFrame(&my_xbee, MQTT_START_REQUEST, sizeof PING_REQUEST);
-//  //       status = xbee_user_data_relay_tx(&my_xbee, iface,
-//  //                                        cmdstr, strlen(cmdstr));
-//         if (status < 0) {
-//             printf("error %d sending data\n", status);
-//         } else {
-//         }
-//             printf("sent message id 0x%02X\n", status);
-//             printf("sent message id 0x%s\n", PING_REQUEST);
-//     }
-
-//================================================== DAVE'S STUFF =========================================*/
 
 
 }
@@ -555,6 +540,117 @@ void loop() {
             XBeeReceivedText = ReceiveString("ATVR\r");
             
             lv_textarea_set_text(ui_TextArea1, XBeeReceivedText.c_str());
+            }
+
+            // ==================== Testing Connect COMMAND ============================
+
+            if(USBSerialRXstr.compareTo("I\r") == 0)
+            {
+                DEBUG("Init XBee Command Received");
+
+                // initialize the serial and device layer for this XBee device
+                DEBUG("Calling xbee_dev_init()");
+                XBEE_SERPORT.ser = &Serial1;
+                XBEE_SERPORT.baudrate = 115200;
+                strcpy(XBEE_SERPORT.portname,"Serial1");
+                XBEE_SERPORT.pin_rx = 18;
+                XBEE_SERPORT.pin_tx = 17;
+                if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
+                    DEBUG("Failed to initialize device.\n");
+                    while(1);
+                }
+
+                    // Initialize the AT Command layer for this XBee device and have the
+                    // driver query it for basic information (hardware version, firmware version,
+                    // serial number, IEEE address, etc.)
+                    DEBUG("Calling xbee_cmd_init_device");
+                    DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
+                    DEBUG( "Waiting for driver to query the XBee device...\n");
+                    do {
+                        xbee_dev_tick(&my_xbee);
+                        status = xbee_cmd_query_status(&my_xbee);
+                    } while (status == -EBUSY);
+                    if (status) {
+                        DEBUG( "Error: (" + String(status) + ") waiting for query to complete.\n");
+                    }
+
+                    // report on the settings
+                    xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
+
+                
+
+            }
+
+            if(USBSerialRXstr.compareTo("C\r") == 0)
+            {
+                DEBUG("Connect Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                connect_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.host,"test.mosquitto.org");
+                strcpy(data.lastWillMessage,"Disconnected");
+                strcpy(data.lastWillTopic,"unit/vp01234/connection");
+                strcpy(data.username,"");
+                strcpy(data.password,"");
+                strcpy(data.unitname,"vp01234");
+                data.cleanSession = ACE_TRUE;
+                data.lastWillQos = 1;
+                data.port = 0;
+                data.lastWillRetain = ACE_TRUE;
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::CONNECT;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
             }
             
             // ==================== XBEE Test COMMAND ============================
@@ -596,26 +692,28 @@ void loop() {
                     
                     while (1)
                     {
-                    status = xbee_dev_tick(&my_xbee);
-                    if (status < 0)
-                    {
-                        printf("Error %d from xbee_dev_tick().\n", status);
-                        //return -1;
-                    }
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
 
-                    delay(3000);
-                    status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                    if (status < 0) 
-                    {
-                        printf("error %d sending data\n", status);
-                    }
-                    else 
-                    {
+                        delay(3000);
+                        status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                        if (status < 0) 
+                        {
+                            printf("error %d sending data\n", status);
 
-                    }
+                            
+                        }
+                        else 
+                        {
+                            
+                        }
 
-                    printf("sent message id 0x%02X\n", status);
-                    printf("sent message id 0x%s\n", PING_REQUEST);
+                        printf("sent message id 0x%02X\n", status);
+                        printf("sent message id 0x%s\n", PING_REQUEST);
                     }
 
                     // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -639,6 +737,7 @@ void loop() {
         break;
 
     default:
+       
         break;
     } 
     
