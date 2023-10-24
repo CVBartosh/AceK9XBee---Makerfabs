@@ -544,7 +544,7 @@ void loop() {
 
             // ==================== Testing Connect COMMAND ============================
 
-            if(USBSerialRXstr.compareTo("I\r") == 0)
+            if(USBSerialRXstr.equalsIgnoreCase("I\r") == true)
             {
                 DEBUG("Init XBee Command Received");
 
@@ -581,7 +581,9 @@ void loop() {
 
             }
 
-            if(USBSerialRXstr.compareTo("C\r") == 0)
+             // ==================== Client Publish Packets ============================
+
+            if(USBSerialRXstr.equalsIgnoreCase("Connect\r") == true)
             {
                 DEBUG("Connect Command Received");
                 
@@ -589,7 +591,7 @@ void loop() {
                 const int MAX_READ_ATTEMPTS = 3;
                 connect_packet data;
                 memset(&data,0,sizeof(data));
-                strcpy(data.host,"test.mosquitto.org");
+                strcpy(data.host,"24.177.167.26");
                 strcpy(data.lastWillMessage,"Disconnected");
                 strcpy(data.lastWillTopic,"unit/vp01234/connection");
                 strcpy(data.username,"");
@@ -607,6 +609,456 @@ void loop() {
                     while(1);
                 }
                 payload[0]=(uint8_t)COMMAND_ID::CONNECT;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
+            }
+            
+            if(USBSerialRXstr.equalsIgnoreCase("Connection\r") == true)
+            {
+                DEBUG("Connection Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                connection_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.TopicName,"unit/vp01234/connection");
+                data.qos = 1;
+                data.retainFlag = ACE_TRUE;
+                strcpy(data.status,"Online");
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::CONNECTION;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
+            }
+            
+            if(USBSerialRXstr.equalsIgnoreCase("Data\r") == true)
+            {
+                DEBUG("Data Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                data_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.TopicName,"data1234");
+                data.qos = 1;
+                data.retainFlag = ACE_FALSE;
+                strcpy(data.timeStampUTC,"2023-10-24T08:02:17.350Z");
+
+                data.powerOn = ACE_TRUE;
+                data.ignitionOn = ACE_TRUE;
+                data.eventCode = 90;
+                data.cellStrength = 64;
+                data.alarmOn = ACE_FALSE;
+                data.leftTemp = 75;
+                data.rightTemp = 74;
+                data.stallSensorPresent = ACE_TRUE;
+                data.stallCount = 0;
+                data.batteryVoltage = 14;
+                strcpy(data.doorPopUTC,"2023-10-24T08:02:17.350Z");
+                data.version = 2;
+
+
+
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::DATA;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
+            }
+            
+            if(USBSerialRXstr.equalsIgnoreCase("Status\r") == true)
+            {
+                DEBUG("Status Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                status_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.TopicName,"unit/vp01234/status");
+                data.qos = 1;
+                data.retainFlag = ACE_FALSE;
+               
+                strcpy(data.unitID,"V550B01100#12344");
+                strcpy(data.unitname,"VP01234");
+                strcpy(data.ctrlHeadSerialNumber,"09B");
+                strcpy(data.unitFirmwareVersion,"C502E4061G-10165");
+                strcpy(data.modemModel,"SARA-R410M-02B");
+                strcpy(data.modemFirmwareVersion,"L0.0.00.00.05.08");
+                strcpy(data.carrierCode,"A1");
+                strcpy(data.mobileEquipmentID,"356726108107145");
+                strcpy(data.integratedCircuitCardID,"89148000005057376071");
+                data.doorPopCount = 3416;
+
+
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::STATUS;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
+            }
+            
+            if(USBSerialRXstr.equalsIgnoreCase("Log\r") == true)
+            {
+                DEBUG("Log Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                log_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.TopicName,"unit/vp01234/logs");
+                data.qos = 1;
+                data.retainFlag = ACE_FALSE;
+               
+                strcpy(data.timeStampUTC,"2023-10-24T08:02:17.350Z");
+                data.type = 0;
+                strcpy(data.message,"Example Log Text");
+                
+
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::LOG;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
+            }
+            
+
+            // ==================== Client Subscribe Packets ============================
+
+            if(USBSerialRXstr.equalsIgnoreCase("Config\r") == true)
+            {
+                DEBUG("Config Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                config_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.TopicName,"unit/vp01234/config");
+                data.qos = 1;
+                data.retainFlag = ACE_TRUE;
+
+                strcpy(data.serverDomain,"acek9server.com");
+                strcpy(data.firmwareVersion,"16_7");
+                strcpy(data.firmwareChecksum,"17B8D93B3C2F01F07358615AA182D4F6");
+                strcpy(data.firmwareURL,"https://acek9server.com/AceK9_VIM-V16_7-201201.bin");
+                data.heartbeatInterval = 600;
+                data.temperatureInterval = 180;
+                data.temperatureDelta = 3;
+                data.connectTimeout = 60;
+                data.registrationFailureLimit = 3;
+                data.hotAlarmtemperature = 90;
+                data.coldAlarmTemperature = 32;
+                data.keepAliveInterval = 60;
+                data.LoggingLevel = 2;
+                data.assignmentStatus = 1;
+
+
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::CONFIG;
+                memcpy(payload+1,&crc,sizeof(uint32_t));
+                memcpy(payload+5,&data,sizeof(data));
+                
+                // one or the other of the following two code blocks
+                //memcpy(tmp+1,&data,sizeof(data));
+                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+                Serial.printf("CRC-32: 0x%lx\n",crc);
+                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
+                free(payload);
+                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                //printf("sent message id 0x%s\n", PING_REQUEST);
+
+                if (status < 0) 
+                {
+                    printf("error %d sending data\n", status);
+
+                    
+                }
+                else 
+                {
+                    while (ReadAttempts < MAX_READ_ATTEMPTS)
+                    {
+                        status = xbee_dev_tick(&my_xbee);
+                        if (status < 0)
+                        {
+                            printf("Error %d from xbee_dev_tick().\n", status);
+                            //return -1;
+                        }
+
+                        delay(3000);
+ 
+                        ReadAttempts++;
+
+                    }
+
+                    if (ReadAttempts == MAX_READ_ATTEMPTS)
+                    {
+                        DEBUG("Read Attempts Timed Out");
+                    }
+                }
+
+                
+                
+
+            }
+            
+            if(USBSerialRXstr.equalsIgnoreCase("Command\r") == true)
+            {
+                DEBUG("Command Command Received");
+                
+                int ReadAttempts = 0;
+                const int MAX_READ_ATTEMPTS = 3;
+                command_packet data;
+                memset(&data,0,sizeof(data));
+                strcpy(data.TopicName,"unit/vp01234/command");
+                data.qos = 1;
+                data.retainFlag = ACE_TRUE;
+
+                strcpy(data.command,"Restart");
+
+                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
+                
+                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
+                if(payload==nullptr) {
+                    Serial.println("Out of memory");
+                    while(1);
+                }
+                payload[0]=(uint8_t)COMMAND_ID::COMMAND;
                 memcpy(payload+1,&crc,sizeof(uint32_t));
                 memcpy(payload+5,&data,sizeof(data));
                 
