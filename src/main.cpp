@@ -729,22 +729,22 @@ void loop() {
                 const int MAX_READ_ATTEMPTS = 3;
                 data_packet data;
                 memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"data1234");
+                strcpy(data.TopicName,"data");
                 data.qos = 1;
                 data.retainFlag = ACE_FALSE;
-                strcpy(data.timeStampUTC,"2023-10-24T08:02:17.350Z");
+                strcpy(data.timeStampUTC,"2020-09-11T08:02:17:350Z");
 
                 data.powerOn = ACE_TRUE;
                 data.ignitionOn = ACE_TRUE;
                 data.eventCode = 90;
                 data.cellStrength = 64;
-                data.alarmOn = ACE_FALSE;
-                data.leftTemp = 75;
-                data.rightTemp = 74;
+                data.alarmOn = ACE_TRUE;
+                data.leftTemp = 752;
+                data.rightTemp = 746;
                 data.stallSensorPresent = ACE_TRUE;
                 data.stallCount = 0;
-                data.batteryVoltage = 14;
-                strcpy(data.doorPopUTC,"2023-10-24T08:02:17.350Z");
+                data.batteryVoltage = 141;
+                strcpy(data.doorPopUTC,"2020-09-11T08:02:17:350Z");
                 data.version = 2;
 
 
