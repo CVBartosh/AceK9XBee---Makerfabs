@@ -398,7 +398,7 @@ int user_data_rx(xbee_dev_t *xbee, const void FAR *raw,uint16_t length, void FAR
     //     xbee_user_data_interface(data->source));
 
     // // If all characters of message are printable, just print it as a string
-    // // with printf().  Otherwise use hex_dump() for non-printable messages.
+    // // with printf().  Otherwise use hex_dump2() for non-printable messages.
     // int printable = TRUE;
     // for (size_t i = 0; printable && i < payload_length; ++i) {
     //     if (!isprint(data->payload[i])) {
@@ -410,7 +410,7 @@ int user_data_rx(xbee_dev_t *xbee, const void FAR *raw,uint16_t length, void FAR
     //     printf("%.*s\n", payload_length, data->payload);
     // } else {
     //     printf("%.*s\n", payload_length, data->payload);
-    //     hex_dump(data->payload, payload_length, HEX_DUMP_FLAG_OFFSET);
+    //     hex_dump2(data->payload, payload_length, HEX_DUMP_FLAG_OFFSET);
     // }
 
     return 0;
@@ -475,6 +475,71 @@ uint32_t crc32(uint32_t crc, unsigned char *buf, size_t len)
             crc = crc & 1 ? (crc >> 1) ^ 0xedb88320 : crc >> 1;
     }
     return ~crc;
+}
+//hex_dump2(&pkt, sizeof(pkt), HEX_DUMP_FLAG_OFFSET);
+void hex_dump2( const void FAR *address, uint16_t length, uint16_t flags)
+{
+   char linebuf[80];
+   char *p, *q, *hex, *chars;
+   unsigned char ch;
+   uint16_t i;
+   const char FAR *data = (const char FAR *)address;
+
+   hex = linebuf;
+   if (flags & HEX_DUMP_FLAG_OFFSET)
+   {
+      hex += 6;         // 0000:<sp>
+   }
+   else if (flags & HEX_DUMP_FLAG_ADDRESS)
+   {
+      hex += 8;         // 000000:<sp>
+   }
+   else if (flags & HEX_DUMP_FLAG_TAB)
+   {
+      *hex++ = '\t';
+   }
+   // start printing ASCII characters at position <chars>
+   chars = hex + (16 * 3 + 3);
+
+   for(i = 0; i < length; )
+   {
+      if (flags & HEX_DUMP_FLAG_OFFSET)
+      {
+         sprintf( linebuf, "%04x: ", i);
+      }
+      else if (flags & HEX_DUMP_FLAG_ADDRESS)
+      {
+         sprintf( linebuf, "%" PRIpFAR ": ", data);
+      }
+      p = hex;
+      q = chars;
+      do {
+         ch = *data++;
+         if ((i & 15) == 8)
+         {
+            // insert space between two sets of 8 bytes
+            *p++ = ' ';
+            *q++ = ' ';
+         }
+         p[0] = "0123456789abcdef"[ch >> 4];
+         p[1] = "0123456789abcdef"[ch & 0x0F];
+         p[2] = ' ';
+         p += 3;
+         *q++ = isprint(ch) ? ch : '.';
+      } while ((++i < length) && (i & 15));
+      // add missing spaces between hex and printed chars
+      memset( p, ' ', chars - p);
+      #ifdef __DC__
+         q[0] = '\n';
+         q[1] = '\0';                     // null terminate ASCII characters
+         fputs( linebuf, stdout);
+         // only necessary to flush stdout on Rabbit platform
+         fflush( stdout);
+      #else
+         *q = '\0';                       // null terminate ASCII characters
+         Serial.println( linebuf);
+      #endif
+   }
 }
 
 void setup() {
@@ -616,6 +681,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -682,6 +748,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -764,6 +831,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -842,6 +910,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -913,6 +982,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -998,6 +1068,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
@@ -1066,6 +1137,7 @@ void loop() {
                 //memcpy(tmp+1,&data,sizeof(data));
                 // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
                 Serial.printf("CRC-32: 0x%lx\n",crc);
+                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
                 status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
                 free(payload);
                 //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
