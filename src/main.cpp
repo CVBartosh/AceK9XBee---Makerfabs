@@ -1,6 +1,6 @@
 #define LCD_HRES 480
 #define LCD_VRES 320
-#define LVGL_LCD_BUF_SIZE (16*1024)
+#define LVGL_LCD_BUF_SIZE (16 * 1024)
 #include <Arduino.h>
 #include <lcd_controller.h>
 #include <lvgl.h>
@@ -17,47 +17,126 @@
 #include "xbee/tx_status.h"
 #include "xbee/user_data.h"
 
-//#include "parse_serial_args.h"
+// #include "parse_serial_args.h"
 
+/*
+   xbee_cmd_callback
 
+   Function called by XBee driver upon receipt of an AT Command Reponse.  Use
+   the fields of the response to display the result of the command to the user.
+*/
+static bool at_cmd_recv = false;
+int at_cmd_callback(const xbee_cmd_response_t FAR *response)
+{
+    at_cmd_recv = true;
+    bool_t printable;
+    uint_fast8_t length, i;
+    uint8_t status;
+    const uint8_t FAR *p;
 
+    Serial.printf("\nResponse for: %s\n", response->command.str);
+
+    if (response->flags & XBEE_CMD_RESP_FLAG_TIMEOUT)
+    {
+        Serial.println("(timed out)");
+        return XBEE_ATCMD_DONE;
+    }
+
+    status = response->flags & XBEE_CMD_RESP_MASK_STATUS;
+    if (status != XBEE_AT_RESP_SUCCESS)
+    {
+        Serial.printf("(error: %s)\n",
+                      (status == XBEE_AT_RESP_ERROR) ? "general" : (status == XBEE_AT_RESP_BAD_COMMAND) ? "bad command"
+                                                               : (status == XBEE_AT_RESP_BAD_PARAMETER) ? "bad parameter"
+                                                               : (status == XBEE_AT_RESP_TX_FAIL)       ? "Tx failure"
+                                                                                                        : "unknown error");
+        return XBEE_ATCMD_DONE;
+    }
+
+    length = response->value_length;
+    if (!length) // command sent successfully, no value to report
+    {
+        Serial.println("(success)");
+        return XBEE_ATCMD_DONE;
+    }
+
+    // check to see if we can print the value out as a string
+    printable = 1;
+    p = response->value_bytes;
+    for (i = length; printable && i; ++p, --i)
+    {
+        printable = isprint(*p);
+    }
+
+    if (printable)
+    {
+        Serial.printf("= \"%.*" PRIsFAR "\" ", length, response->value_bytes);
+    }
+    if (length <= 4)
+    {
+        // format hex string with (2 * number of bytes in value) leading zeros
+        Serial.printf("= 0x%0*" PRIX32 " (%" PRIu32 ")\n", length * 2, response->value,
+                      response->value);
+    }
+    else if (length <= 32)
+    {
+        // format hex string
+        Serial.printf("= 0x");
+        for (i = length, p = response->value_bytes; i; ++p, --i)
+        {
+            Serial.printf("%02X", *p);
+        }
+        Serial.println("");
+    }
+    else
+    {
+        Serial.printf("= %d bytes:\n", length);
+        hex_dump(response->value_bytes, length, HEX_DUMP_FLAG_TAB);
+    }
+
+    return XBEE_ATCMD_DONE;
+}
 
 //================================================== MY STUFF =========================================
 
-
-static lv_disp_draw_buf_t disp_buf;  // contains internal graphic buffer(s) called draw buffer(s)
-static lv_disp_drv_t disp_drv;       // contains callback functions
+static lv_disp_draw_buf_t disp_buf; // contains internal graphic buffer(s) called draw buffer(s)
+static lv_disp_drv_t disp_drv;      // contains callback functions
 static lv_color_t *lv_disp_buf;
 static lv_color_t *lv_disp_buf2;
 static bool is_initialized_lvgl = false;
 
-static bool lcd_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t* edata, void* user_ctx) {
+static bool lcd_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+{
     lv_disp_flush_ready(&disp_drv);
     return true;
 }
-static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map) {
+static void lvgl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
+{
     int offsetx1 = area->x1;
     int offsetx2 = area->x2;
     int offsety1 = area->y1;
     int offsety2 = area->y2;
     // copy a buffer's content to a specific area of the display
-    lcd_flush(offsetx1, offsety1, offsetx2 , offsety2 , color_map);
+    lcd_flush(offsetx1, offsety1, offsetx2, offsety2, color_map);
 }
 
 //================================================== DAVE'S STUFF =========================================*/
-    static const char PING_REQUEST[] = "\x01PING";  // CSXB_MSG_PING_REQUEST=0x01 followed by arbitrary payload
-    static const char MQTT_START_REQUEST[] = "\x16MQTT_START";  // CSXB_MSG_MQTT_START=0x16 followed by arbitrary payload
-    char cmdstr[256];
-    xbee_serial_t XBEE_SERPORT;
-    int iface = XBEE_USER_DATA_IF_MICROPYTHON;
-    int status;
+static const char PING_REQUEST[] = "\x01PING";             // CSXB_MSG_PING_REQUEST=0x01 followed by arbitrary payload
+static const char MQTT_START_REQUEST[] = "\x16MQTT_START"; // CSXB_MSG_MQTT_START=0x16 followed by arbitrary payload
+char cmdstr[256];
+xbee_serial_t XBEE_SERPORT;
+int iface = XBEE_USER_DATA_IF_MICROPYTHON;
+int status;
 //================================================== DAVE'S STUFF =========================================*/
-
 
 //================================================== MY STUFF =========================================
 
 bool USBSerialCommandReceived = false;
-enum class InputType  {NONE,USBSERIALCOMMAND};
+enum class InputType
+{
+    NONE,
+    USBSERIALCOMMAND
+};
 InputType ReceivedInput = InputType::NONE;
 
 uint8_t SerialRetries = 0;
@@ -67,7 +146,11 @@ int XBeeResponseTime_ms;
 
 String XBeeReceivedText;
 
-enum class RXCode{OK = 0,ERR = -1};
+enum class RXCode
+{
+    OK = 0,
+    ERR = -1
+};
 RXCode CurrentResponse = RXCode::ERR;
 String USBSerialRXstr;
 
@@ -78,6 +161,16 @@ bool WaitForOK();
 uint32_t DebugCount;
 String PrevDebugStr;
 void DEBUG(String DebugStr);
+
+#define ACECON_PPS_IN 9
+#define ACECON_IGN_IN 10
+#define ACECON_POP_IN 11
+#define ACECON_PPS_OUT 12
+#define ACECON_PPT_OUT 13
+#define ACECON_HPS_OUT 14
+#define ACECON_ALM_OUT 21
+#define ACEDATA_RX 47
+#define ACEDATA_TX 48
 
 xbee_dev_t my_xbee;
 
@@ -91,44 +184,52 @@ xbee_dev_t my_xbee;
 
 #include "xbee/serial.h"
 
-#define XBEE_SER_CHECK(ptr) \
-    do { if (xbee_ser_invalid(ptr)) return -EINVAL; } while (0)
+#define XBEE_SER_CHECK(ptr)        \
+    do                             \
+    {                              \
+        if (xbee_ser_invalid(ptr)) \
+            return -EINVAL;        \
+    } while (0)
 
-void dump_hex (
-    const void * addr,
+void dump_hex(
+    const void *addr,
     size_t len,
-    int perLine = 16
-) {
+    int perLine = 16)
+{
     // Silently ignore silly per-line values.
 
-    if (perLine < 4 || perLine > 64) perLine = 16;
+    if (perLine < 4 || perLine > 64)
+        perLine = 16;
 
     int i;
-    unsigned char buff[perLine+2];
-    const unsigned char * pc = (const unsigned char *)addr;
+    unsigned char buff[perLine + 2];
+    const unsigned char *pc = (const unsigned char *)addr;
 
     // Length checks.
 
-    if (len == 0) {
+    if (len == 0)
+    {
         return;
     }
     // Process every byte in the data.
 
-    for (i = 0; i < len; i++) {
+    for (i = 0; i < len; i++)
+    {
         // Multiple of perLine means new or first line (with line offset).
-         if ((i % perLine) == 0) {
+        if ((i % perLine) == 0)
+        {
             // Only print previous-line ASCII buffer for lines beyond first.
 
-            if (i != 0) Serial.printf ("  %s\n", buff);
+            if (i != 0)
+                Serial.printf("  %s\n", buff);
 
             // Output the offset of current line.
 
-            Serial.printf ("  %04x ", i);
+            Serial.printf("  %04x ", i);
         }
-        
 
-        Serial.printf (" %02x", pc[i]);
-       
+        Serial.printf(" %02x", pc[i]);
+
         // And buffer a printable ASCII character for later.
 
         if ((pc[i] < 0x20) || (pc[i] > 0x7e)) // isprint() may be better.
@@ -140,47 +241,46 @@ void dump_hex (
 
     // Pad out last line if not exactly perLine characters.
 
-    while ((i % perLine) != 0) {
-        Serial.printf ("   ");
+    while ((i % perLine) != 0)
+    {
+        Serial.printf("   ");
         i++;
     }
 
     // And print the final ASCII buffer.
 
-    Serial.printf ("  %s\n", buff);
+    Serial.printf("  %s\n", buff);
 }
-int xbee_ser_invalid( xbee_serial_t *serial)
+int xbee_ser_invalid(xbee_serial_t *serial)
 {
 
-   // DEBUG("'xbee_ser_invalid' called");
+    // DEBUG("'xbee_ser_invalid' called");
     if (serial)
     {
         return 0;
     }
 
-    #define XBEE_SERIAL_VERBOSE
-    #ifdef XBEE_SERIAL_VERBOSE
-        
-    #endif
+#define XBEE_SERIAL_VERBOSE
+#ifdef XBEE_SERIAL_VERBOSE
+
+#endif
 
     if (serial == NULL)
-        {
-            
-            //printf( "%s: serial=NULL\n", __FUNCTION__);
-        }
-        else
-        {
-            //printf( "%s: serial=%p, serial->fd=%d (invalid)\n", __FUNCTION__,serial, serial->fd);
-        }
+    {
 
+        // printf( "%s: serial=NULL\n", __FUNCTION__);
+    }
+    else
+    {
+        // printf( "%s: serial=%p, serial->fd=%d (invalid)\n", __FUNCTION__,serial, serial->fd);
+    }
 
     return 1;
 }
 
-
-const char *xbee_ser_portname( xbee_serial_t *serial)
+const char *xbee_ser_portname(xbee_serial_t *serial)
 {
-    
+
     DEBUG("'xbee_ser_portname' called");
 
     if (serial == NULL)
@@ -191,14 +291,13 @@ const char *xbee_ser_portname( xbee_serial_t *serial)
     return serial->portname;
 }
 
-
-int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
+int xbee_ser_write(xbee_serial_t *serial, const void FAR *buffer, int length)
 {
-    //Serial.println("ser_write");
-    //DEBUG("'xbee_ser_write' called");
+    // Serial.println("ser_write");
+    // DEBUG("'xbee_ser_write' called");
     int result;
-    const char* buf = (const char*)buffer;
-    dump_hex(buffer,length,16);
+    const char *buf = (const char *)buffer;
+    dump_hex(buffer, length, 16);
     /*if (SendString((const void)buffer) == RXCode::ERR)
     {
         DEBUG("Send String Failed");
@@ -207,39 +306,40 @@ int xbee_ser_write( xbee_serial_t *serial, const void FAR *buffer,int length)
     {
         DEBUG("Send String Success");
     }*/
-    
-    ((HardwareSerial*)serial->ser)->write((char*)buffer,length);
-   // USBSerial.write((char*)buffer,length);
 
+    ((HardwareSerial *)serial->ser)->write((char *)buffer, length);
+    // USBSerial.write((char*)buffer,length);
 
     return 0;
 }
 
-
-int xbee_ser_read( xbee_serial_t *serial, void FAR *buffer, int bufsize)
+int xbee_ser_read(xbee_serial_t *serial, void FAR *buffer, int bufsize)
 {
-    for(int i = 0;i<1000;++i) {
-        if(((HardwareSerial*)serial->ser)->available()>=bufsize) {
+    for (int i = 0; i < 1000; ++i)
+    {
+        if (((HardwareSerial *)serial->ser)->available() >= bufsize)
+        {
             break;
         }
         delay(1);
     }
-    DEBUG(String("available count: ")+((HardwareSerial*)serial->ser)->available());
-    int avail = min(bufsize,((HardwareSerial*)serial->ser)->available());
-    int result = (int)((HardwareSerial*)serial->ser)->read((char*)buffer,avail);
-    DEBUG("'xbee_ser_read' returned: " + String((char*)buffer,avail));
+    DEBUG(String("available count: ") + ((HardwareSerial *)serial->ser)->available());
+    int avail = min(bufsize, ((HardwareSerial *)serial->ser)->available());
+    int result = (int)((HardwareSerial *)serial->ser)->read((char *)buffer, avail);
+    DEBUG("'xbee_ser_read' returned: " + String((char *)buffer, avail));
     return result;
 }
 
-int xbee_ser_putchar( xbee_serial_t *serial, uint8_t ch)
+int xbee_ser_putchar(xbee_serial_t *serial, uint8_t ch)
 {
-    if(0==((HardwareSerial*)serial->ser)->availableForWrite()) {
+    if (0 == ((HardwareSerial *)serial->ser)->availableForWrite())
+    {
         return -ENOSPC;
     }
     DEBUG("'xbee_ser_putchar' called");
     int retval;
 
-    retval = xbee_ser_write( serial, &ch, 1);
+    retval = xbee_ser_write(serial, &ch, 1);
     if (retval == 1)
     {
         return 0;
@@ -254,20 +354,21 @@ int xbee_ser_putchar( xbee_serial_t *serial, uint8_t ch)
     }
 }
 
-
-int xbee_ser_getchar( xbee_serial_t *serial)
+int xbee_ser_getchar(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_getchar' called");
     int i;
-    for(i = 0;i<1000;++i) {
-        if(((HardwareSerial*)serial->ser)->available()) {
+    for (i = 0; i < 1000; ++i)
+    {
+        if (((HardwareSerial *)serial->ser)->available())
+        {
             break;
         }
         delay(1);
     }
-    i= ((HardwareSerial*)serial->ser)->read();
+    i = ((HardwareSerial *)serial->ser)->read();
     uint8_t ch = 0;
-    if (0>i )
+    if (0 > i)
     {
         return -ENODATA;
     }
@@ -275,105 +376,96 @@ int xbee_ser_getchar( xbee_serial_t *serial)
     return i;
 }
 
-
-int xbee_ser_tx_free( xbee_serial_t *serial)
+int xbee_ser_tx_free(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_tx_free' called");
     return INT_MAX;
 }
 
-
-int xbee_ser_tx_used( xbee_serial_t *serial)
+int xbee_ser_tx_used(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_tx_used' called");
     return 0;
 }
 
-
-int xbee_ser_tx_flush( xbee_serial_t *serial)
+int xbee_ser_tx_flush(xbee_serial_t *serial)
 {
-    ((HardwareSerial*)serial->ser)->flush();
+    ((HardwareSerial *)serial->ser)->flush();
     DEBUG("'xbee_ser_tx_flush' called");
     return 0;
 }
 
-
-int xbee_ser_rx_free( xbee_serial_t *serial)
+int xbee_ser_rx_free(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_rx_free' called");
     return INT_MAX;
 }
 
-
-int xbee_ser_rx_used( xbee_serial_t *serial)
+int xbee_ser_rx_used(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_rx_used' called");
-   return ((HardwareSerial*)serial->ser)->available();
+    return ((HardwareSerial *)serial->ser)->available();
 }
 
-
-int xbee_ser_rx_flush( xbee_serial_t *serial)
+int xbee_ser_rx_flush(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_rx_flush' called");
-    ((HardwareSerial*)serial->ser)->flush();
+    ((HardwareSerial *)serial->ser)->flush();
     return 0;
 }
 
-
-#define _BAUDCASE(b)        case b: baud = B ## b; break
-int xbee_ser_baudrate( xbee_serial_t *serial, uint32_t baudrate)
+#define _BAUDCASE(b) \
+    case b:          \
+        baud = B##b; \
+        break
+int xbee_ser_baudrate(xbee_serial_t *serial, uint32_t baudrate)
 {
-    ((HardwareSerial*)serial->ser)->end();
+    ((HardwareSerial *)serial->ser)->end();
     serial->baudrate = baudrate;
-    ((HardwareSerial*)serial->ser)->begin(baudrate,SERIAL_8N1,serial->pin_rx,serial->pin_tx);
+    ((HardwareSerial *)serial->ser)->begin(baudrate, SERIAL_8N1, serial->pin_rx, serial->pin_tx);
     DEBUG("'xbee_ser_baudrate' called");
     return 0;
 }
 
-
-int xbee_ser_open( xbee_serial_t *serial, uint32_t baudrate)
+int xbee_ser_open(xbee_serial_t *serial, uint32_t baudrate)
 {
-    if(baudrate!=0) {
+    if (baudrate != 0)
+    {
         serial->baudrate = baudrate;
     }
-    ((HardwareSerial*)serial->ser)->begin(serial->baudrate,SERIAL_8N1,serial->pin_rx,serial->pin_tx);
-    //serial->ser.begin() baudrate,serial->pin_tx);
+    ((HardwareSerial *)serial->ser)->begin(serial->baudrate, SERIAL_8N1, serial->pin_rx, serial->pin_tx);
+    // serial->ser.begin() baudrate,serial->pin_tx);
     DEBUG("'xbee_ser_open' called");
     return 0;
 }
 
-
-int xbee_ser_close( xbee_serial_t *serial)
+int xbee_ser_close(xbee_serial_t *serial)
 {
-    ((HardwareSerial*)serial->ser)->end();
+    ((HardwareSerial *)serial->ser)->end();
     DEBUG("'xbee_ser_close' called");
     return 0;
 }
 
-
-int xbee_ser_break( xbee_serial_t *serial, int enabled)
+int xbee_ser_break(xbee_serial_t *serial, int enabled)
 {
     DEBUG("'xbee_ser_break' called");
 
     return 0;
 }
 
-
-int xbee_ser_flowcontrol( xbee_serial_t *serial, int enabled)
+int xbee_ser_flowcontrol(xbee_serial_t *serial, int enabled)
 {
     DEBUG("'xbee_ser_flowcontrol' called");
     return 0;
 }
 
-
-int xbee_ser_set_rts( xbee_serial_t *serial, int asserted)
+int xbee_ser_set_rts(xbee_serial_t *serial, int asserted)
 {
-   DEBUG("'xbee_ser_set_rts' called");
+    DEBUG("'xbee_ser_set_rts' called");
     return 0;
 }
 
-
-int xbee_ser_get_cts( xbee_serial_t *serial)
+int xbee_ser_get_cts(xbee_serial_t *serial)
 {
     DEBUG("'xbee_ser_get_cts' called");
     return 1;
@@ -384,12 +476,12 @@ int xbee_ser_get_cts( xbee_serial_t *serial)
 //================================================== MY STUFF =========================================*/
 
 // function that handles received User Data frames
-int user_data_rx(xbee_dev_t *xbee, const void FAR *raw,uint16_t length, void FAR *context)
+int user_data_rx(xbee_dev_t *xbee, const void FAR *raw, uint16_t length, void FAR *context)
 {
     DEBUG("'user_data_rx' called");
     XBEE_UNUSED_PARAMETER(xbee);
     XBEE_UNUSED_PARAMETER(context);
-    Serial1.write((const char*)raw,length);
+    Serial1.write((const char *)raw, length);
     // const xbee_frame_user_data_rx_t *data = (const xbee_frame_user_data_rx_t*) raw;
     // int payload_length = length - offsetof(xbee_frame_user_data_rx_t,
     //                                        payload);
@@ -422,22 +514,23 @@ int dump_tx_status(xbee_dev_t *xbee, const void FAR *frame, uint16_t length, voi
     XBEE_UNUSED_PARAMETER(length);
     XBEE_UNUSED_PARAMETER(context);
 
-    const xbee_frame_tx_status_t *tx_status = (const xbee_frame_tx_status_t*) frame;
+    const xbee_frame_tx_status_t *tx_status = (const xbee_frame_tx_status_t *)frame;
     char buffer[40];
     const char *status = NULL;
 
     // Provide descriptive strings for the only two errors we expect
     // from sending User Data Relay frames.
-    switch (tx_status->delivery) {
-        case XBEE_TX_DELIVERY_INVALID_INTERFACE:
-            status = "invalid interface";
-            break;
-        case XBEE_TX_DELIVERY_INTERFACE_BLOCKED:
-            status = "interface blocked";
-            break;
-        default:
-            sprintf(buffer, "unknown status 0x%X", tx_status->delivery);
-            status = buffer;
+    switch (tx_status->delivery)
+    {
+    case XBEE_TX_DELIVERY_INVALID_INTERFACE:
+        status = "invalid interface";
+        break;
+    case XBEE_TX_DELIVERY_INTERFACE_BLOCKED:
+        status = "interface blocked";
+        break;
+    default:
+        sprintf(buffer, "unknown status 0x%X", tx_status->delivery);
+        status = buffer;
     }
 
     printf("Error on message id 0x%02X: %s\n", tx_status->frame_id, status);
@@ -445,12 +538,11 @@ int dump_tx_status(xbee_dev_t *xbee, const void FAR *frame, uint16_t length, voi
     return 0;
 }
 const xbee_dispatch_table_entry_t xbee_frame_handlers[] =
-{
-    XBEE_FRAME_HANDLE_LOCAL_AT,
-    { XBEE_FRAME_USER_DATA_RX, 0, user_data_rx, NULL },
-    { XBEE_FRAME_TX_STATUS, 0, dump_tx_status, NULL },
-    XBEE_FRAME_TABLE_END
-};
+    {
+        XBEE_FRAME_HANDLE_LOCAL_AT,
+        {XBEE_FRAME_USER_DATA_RX, 0, user_data_rx, NULL},
+        {XBEE_FRAME_TX_STATUS, 0, dump_tx_status, NULL},
+        XBEE_FRAME_TABLE_END};
 
 int sendUserDataRelayAPIFrame(xbee_dev_t *xbee, const char *tx, const int num_tx)
 {
@@ -460,7 +552,7 @@ int sendUserDataRelayAPIFrame(xbee_dev_t *xbee, const char *tx, const int num_tx
     if (ret < 0)
     {
         printf("%s: ERROR: Failed to send frame to the XBee via serial. Error code: %d\n", __func__, ret);
-        return ret;  // The value is negative so it contains the error code.
+        return ret; // The value is negative so it contains the error code.
     }
     return 0;
 }
@@ -469,81 +561,84 @@ uint32_t crc32(uint32_t crc, unsigned char *buf, size_t len)
     int k;
 
     crc = ~crc;
-    while (len--) {
+    while (len--)
+    {
         crc ^= *buf++;
         for (k = 0; k < 8; k++)
             crc = crc & 1 ? (crc >> 1) ^ 0xedb88320 : crc >> 1;
     }
     return ~crc;
 }
-//hex_dump2(&pkt, sizeof(pkt), HEX_DUMP_FLAG_OFFSET);
-void hex_dump2( const void FAR *address, uint16_t length, uint16_t flags)
+// hex_dump2(&pkt, sizeof(pkt), HEX_DUMP_FLAG_OFFSET);
+void hex_dump2(const void FAR *address, uint16_t length, uint16_t flags)
 {
-   char linebuf[80];
-   char *p, *q, *hex, *chars;
-   unsigned char ch;
-   uint16_t i;
-   const char FAR *data = (const char FAR *)address;
+    char linebuf[80];
+    char *p, *q, *hex, *chars;
+    unsigned char ch;
+    uint16_t i;
+    const char FAR *data = (const char FAR *)address;
 
-   hex = linebuf;
-   if (flags & HEX_DUMP_FLAG_OFFSET)
-   {
-      hex += 6;         // 0000:<sp>
-   }
-   else if (flags & HEX_DUMP_FLAG_ADDRESS)
-   {
-      hex += 8;         // 000000:<sp>
-   }
-   else if (flags & HEX_DUMP_FLAG_TAB)
-   {
-      *hex++ = '\t';
-   }
-   // start printing ASCII characters at position <chars>
-   chars = hex + (16 * 3 + 3);
+    hex = linebuf;
+    if (flags & HEX_DUMP_FLAG_OFFSET)
+    {
+        hex += 6; // 0000:<sp>
+    }
+    else if (flags & HEX_DUMP_FLAG_ADDRESS)
+    {
+        hex += 8; // 000000:<sp>
+    }
+    else if (flags & HEX_DUMP_FLAG_TAB)
+    {
+        *hex++ = '\t';
+    }
+    // start printing ASCII characters at position <chars>
+    chars = hex + (16 * 3 + 3);
 
-   for(i = 0; i < length; )
-   {
-      if (flags & HEX_DUMP_FLAG_OFFSET)
-      {
-         sprintf( linebuf, "%04x: ", i);
-      }
-      else if (flags & HEX_DUMP_FLAG_ADDRESS)
-      {
-         sprintf( linebuf, "%" PRIpFAR ": ", data);
-      }
-      p = hex;
-      q = chars;
-      do {
-         ch = *data++;
-         if ((i & 15) == 8)
-         {
-            // insert space between two sets of 8 bytes
-            *p++ = ' ';
-            *q++ = ' ';
-         }
-         p[0] = "0123456789abcdef"[ch >> 4];
-         p[1] = "0123456789abcdef"[ch & 0x0F];
-         p[2] = ' ';
-         p += 3;
-         *q++ = isprint(ch) ? ch : '.';
-      } while ((++i < length) && (i & 15));
-      // add missing spaces between hex and printed chars
-      memset( p, ' ', chars - p);
-      #ifdef __DC__
-         q[0] = '\n';
-         q[1] = '\0';                     // null terminate ASCII characters
-         fputs( linebuf, stdout);
-         // only necessary to flush stdout on Rabbit platform
-         fflush( stdout);
-      #else
-         *q = '\0';                       // null terminate ASCII characters
-         Serial.println( linebuf);
-      #endif
-   }
+    for (i = 0; i < length;)
+    {
+        if (flags & HEX_DUMP_FLAG_OFFSET)
+        {
+            sprintf(linebuf, "%04x: ", i);
+        }
+        else if (flags & HEX_DUMP_FLAG_ADDRESS)
+        {
+            sprintf(linebuf, "%" PRIpFAR ": ", data);
+        }
+        p = hex;
+        q = chars;
+        do
+        {
+            ch = *data++;
+            if ((i & 15) == 8)
+            {
+                // insert space between two sets of 8 bytes
+                *p++ = ' ';
+                *q++ = ' ';
+            }
+            p[0] = "0123456789abcdef"[ch >> 4];
+            p[1] = "0123456789abcdef"[ch & 0x0F];
+            p[2] = ' ';
+            p += 3;
+            *q++ = isprint(ch) ? ch : '.';
+        } while ((++i < length) && (i & 15));
+        // add missing spaces between hex and printed chars
+        memset(p, ' ', chars - p);
+#ifdef __DC__
+        q[0] = '\n';
+        q[1] = '\0'; // null terminate ASCII characters
+        fputs(linebuf, stdout);
+        // only necessary to flush stdout on Rabbit platform
+        fflush(stdout);
+#else
+        *q = '\0'; // null terminate ASCII characters
+        Serial.println(linebuf);
+#endif
+    }
 }
 
-void setup() {
-    
+void setup()
+{
+
     lv_init();
     lv_disp_buf = (lv_color_t *)heap_caps_malloc(LVGL_LCD_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     lv_disp_buf2 = (lv_color_t *)heap_caps_malloc(LVGL_LCD_BUF_SIZE * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -554,27 +649,34 @@ void setup() {
     disp_drv.flush_cb = lvgl_flush;
     disp_drv.draw_buf = &disp_buf;
     lcd_color_trans_done_register_cb(lcd_flush_ready, &disp_drv);
-    lcd_init(32*1024);  
+    lcd_init(32 * 1024);
     lv_disp_drv_register(&disp_drv);
     ui_init();
     is_initialized_lvgl = true;
-   
 
     // your setup code here:
     Serial1.begin(115200, SERIAL_8N1, 18, 17);
 
     Serial.begin(115200);
- 
+
+    // initialize ACECON Pins
+    pinMode(ACECON_PPS_IN, INPUT);
+    pinMode(ACECON_IGN_IN, INPUT);
+    pinMode(ACECON_POP_IN, INPUT);
+    pinMode(ACECON_PPS_OUT, OUTPUT);
+    pinMode(ACECON_PPT_OUT, OUTPUT);
+    pinMode(ACECON_HPS_OUT, OUTPUT);
+    pinMode(ACECON_ALM_OUT, OUTPUT);
+
+    pinMode(ACEDATA_RX, INPUT);
+    pinMode(ACEDATA_TX, OUTPUT);
+
     DEBUG("Booted");
-
-
-
-
 }
 
+void loop()
+{
 
-void loop() {
-        
     // Commands Received over USBSerial
     if (Serial.available())
     {
@@ -585,757 +687,837 @@ void loop() {
     switch (ReceivedInput)
     {
     case InputType::USBSERIALCOMMAND:
+    {
+
+        USBSerialRXstr = Serial.readStringUntil('\n');
+        DEBUG("USB Serial Command Received: " + USBSerialRXstr);
+
+        // ==================== FW COMMAND ============================
+
+        if (USBSerialRXstr.equalsIgnoreCase("FW\r") == true)
         {
-           
-            USBSerialRXstr = Serial.readStringUntil('\n');
-            DEBUG("USB Serial Command Received: " + USBSerialRXstr);
+            DEBUG("Firmware Command Received");
 
-
-            // ==================== FW COMMAND ============================
-
-            if(USBSerialRXstr.compareTo("FW\r") == 0)
+            if (SendString("+++") == RXCode::ERR)
             {
-                DEBUG("Firmware Command Received");
+                DEBUG("Send String Failed");
+            }
 
-                if (SendString("+++") == RXCode::ERR)
-                {
-                    DEBUG("Send String Failed");
-                }
-           
             XBeeReceivedText = ReceiveString("ATVR\r");
-            
+
             lv_textarea_set_text(ui_TextArea1, XBeeReceivedText.c_str());
-            }
-
-            // ==================== Testing Connect COMMAND ============================
-
-            if(USBSerialRXstr.equalsIgnoreCase("I\r") == true)
-            {
-                DEBUG("Init XBee Command Received");
-
-                // initialize the serial and device layer for this XBee device
-                DEBUG("Calling xbee_dev_init()");
-                XBEE_SERPORT.ser = &Serial1;
-                XBEE_SERPORT.baudrate = 115200;
-                strcpy(XBEE_SERPORT.portname,"Serial1");
-                XBEE_SERPORT.pin_rx = 18;
-                XBEE_SERPORT.pin_tx = 17;
-                if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
-                    DEBUG("Failed to initialize device.\n");
-                    while(1);
-                }
-
-                    // Initialize the AT Command layer for this XBee device and have the
-                    // driver query it for basic information (hardware version, firmware version,
-                    // serial number, IEEE address, etc.)
-                    DEBUG("Calling xbee_cmd_init_device");
-                    DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
-                    DEBUG( "Waiting for driver to query the XBee device...\n");
-                    do {
-                        xbee_dev_tick(&my_xbee);
-                        status = xbee_cmd_query_status(&my_xbee);
-                    } while (status == -EBUSY);
-                    if (status) {
-                        DEBUG( "Error: (" + String(status) + ") waiting for query to complete.\n");
-                    }
-
-                    // report on the settings
-                    xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
-
-                
-
-            }
-
-             // ==================== Client Publish Packets ============================
-
-            if(USBSerialRXstr.equalsIgnoreCase("Connect\r") == true)
-            {
-                DEBUG("Connect Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                connect_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.host,"24.177.167.26");
-                strcpy(data.lastWillMessage,"Disconnected");
-                strcpy(data.lastWillTopic,"unit/vp01234/connection");
-                strcpy(data.username,"");
-                strcpy(data.password,"");
-                strcpy(data.unitname,"vp01234");
-                data.cleanSession = ACE_TRUE;
-                data.lastWillQos = 1;
-                data.port = 0;
-                data.lastWillRetain = ACE_TRUE;
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::CONNECT;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-            if(USBSerialRXstr.equalsIgnoreCase("Connection\r") == true)
-            {
-                DEBUG("Connection Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                connection_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"unit/vp01234/connection");
-                data.qos = 1;
-                data.retainFlag = ACE_TRUE;
-                strcpy(data.status,"Online");
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::CONNECTION;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-            if(USBSerialRXstr.equalsIgnoreCase("Data\r") == true)
-            {
-                DEBUG("Data Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                data_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"data");
-                data.qos = 1;
-                data.retainFlag = ACE_FALSE;
-                strcpy(data.timeStampUTC,"2020-09-11T08:02:17:350Z");
-
-                data.powerOn = ACE_TRUE;
-                data.ignitionOn = ACE_TRUE;
-                data.eventCode = 90;
-                data.cellStrength = 64;
-                data.alarmOn = ACE_TRUE;
-                data.leftTemp = 752;
-                data.rightTemp = 746;
-                data.stallSensorPresent = ACE_TRUE;
-                data.stallCount = 0;
-                data.batteryVoltage = 141;
-                strcpy(data.doorPopUTC,"2020-09-11T08:02:17:350Z");
-                data.version = 2;
-
-
-
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::DATA;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-            if(USBSerialRXstr.equalsIgnoreCase("Status\r") == true)
-            {
-                DEBUG("Status Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                status_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"unit/vp01234/status");
-                data.qos = 1;
-                data.retainFlag = ACE_FALSE;
-               
-                strcpy(data.unitID,"V550B01100#12344");
-                strcpy(data.unitname,"VP01234");
-                strcpy(data.ctrlHeadSerialNumber,"09B");
-                strcpy(data.unitFirmwareVersion,"C502E4061G-10165");
-                strcpy(data.modemModel,"SARA-R410M-02B");
-                strcpy(data.modemFirmwareVersion,"L0.0.00.00.05.08");
-                strcpy(data.carrierCode,"A1");
-                strcpy(data.mobileEquipmentID,"356726108107145");
-                strcpy(data.integratedCircuitCardID,"89148000005057376071");
-                data.doorPopCount = 3416;
-
-
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::STATUS;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-            if(USBSerialRXstr.equalsIgnoreCase("Log\r") == true)
-            {
-                DEBUG("Log Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                log_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"unit/vp01234/logs");
-                data.qos = 1;
-                data.retainFlag = ACE_FALSE;
-               
-                strcpy(data.timeStampUTC,"2023-10-24T08:02:17.350Z");
-                data.type = 0;
-                strcpy(data.message,"Example Log Text");
-                
-
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::LOG;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-
-            // ==================== Client Subscribe Packets ============================
-
-            if(USBSerialRXstr.equalsIgnoreCase("Config\r") == true)
-            {
-                DEBUG("Config Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                config_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"unit/vp01234/config");
-                data.qos = 1;
-                data.retainFlag = ACE_TRUE;
-
-                strcpy(data.serverDomain,"acek9server.com");
-                strcpy(data.firmwareVersion,"16_7");
-                strcpy(data.firmwareChecksum,"17B8D93B3C2F01F07358615AA182D4F6");
-                strcpy(data.firmwareURL,"https://acek9server.com/AceK9_VIM-V16_7-201201.bin");
-                data.heartbeatInterval = 600;
-                data.temperatureInterval = 180;
-                data.temperatureDelta = 3;
-                data.connectTimeout = 60;
-                data.registrationFailureLimit = 3;
-                data.hotAlarmtemperature = 90;
-                data.coldAlarmTemperature = 32;
-                data.keepAliveInterval = 60;
-                data.LoggingLevel = 2;
-                data.assignmentStatus = 1;
-
-
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::CONFIG;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-            if(USBSerialRXstr.equalsIgnoreCase("Command\r") == true)
-            {
-                DEBUG("Command Command Received");
-                
-                int ReadAttempts = 0;
-                const int MAX_READ_ATTEMPTS = 3;
-                command_packet data;
-                memset(&data,0,sizeof(data));
-                strcpy(data.TopicName,"unit/vp01234/command");
-                data.qos = 1;
-                data.retainFlag = ACE_TRUE;
-
-                strcpy(data.command,"Restart");
-
-                uint32_t crc = crc32(0,(unsigned char*)&data,sizeof(data));
-                
-                uint8_t* payload = (uint8_t*)malloc(sizeof(data)+5);
-                if(payload==nullptr) {
-                    Serial.println("Out of memory");
-                    while(1);
-                }
-                payload[0]=(uint8_t)COMMAND_ID::COMMAND;
-                memcpy(payload+1,&crc,sizeof(uint32_t));
-                memcpy(payload+5,&data,sizeof(data));
-                
-                // one or the other of the following two code blocks
-                //memcpy(tmp+1,&data,sizeof(data));
-                // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
-                Serial.printf("CRC-32: 0x%lx\n",crc);
-                hex_dump2(payload, sizeof(data)+5, HEX_DUMP_FLAG_OFFSET);
-                status = sendUserDataRelayAPIFrame(&my_xbee,(const char*)payload, sizeof(data)+5); 
-                free(payload);
-                //status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                //printf("sent message id 0x%s\n", PING_REQUEST);
-
-                if (status < 0) 
-                {
-                    printf("error %d sending data\n", status);
-
-                    
-                }
-                else 
-                {
-                    while (ReadAttempts < MAX_READ_ATTEMPTS)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
- 
-                        ReadAttempts++;
-
-                    }
-
-                    if (ReadAttempts == MAX_READ_ATTEMPTS)
-                    {
-                        DEBUG("Read Attempts Timed Out");
-                    }
-                }
-
-                
-                
-
-            }
-            
-            // ==================== XBEE Test COMMAND ============================
-
-            if(USBSerialRXstr.compareTo("T\r") == 0)
-            {
-                DEBUG("XBee Test Command Received");
-
-                // initialize the serial and device layer for this XBee device
-                DEBUG("Calling xbee_dev_init()");
-                XBEE_SERPORT.ser = &Serial1;
-                XBEE_SERPORT.baudrate = 115200;
-                strcpy(XBEE_SERPORT.portname,"Serial1");
-                XBEE_SERPORT.pin_rx = 18;
-                XBEE_SERPORT.pin_tx = 17;
-                if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL)) {
-                    DEBUG("Failed to initialize device.\n");
-                    while(1);
-                }
-
-                    // Initialize the AT Command layer for this XBee device and have the
-                    // driver query it for basic information (hardware version, firmware version,
-                    // serial number, IEEE address, etc.)
-                    DEBUG("Calling xbee_cmd_init_device");
-                    DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
-                    DEBUG( "Waiting for driver to query the XBee device...\n");
-                    do {
-                        xbee_dev_tick(&my_xbee);
-                        status = xbee_cmd_query_status(&my_xbee);
-                    } while (status == -EBUSY);
-                    if (status) {
-                        DEBUG( "Error: (" + String(status) + ") waiting for query to complete.\n");
-                    }
-
-                    // report on the settings
-                    xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
-
-                    
-                    
-                    while (1)
-                    {
-                        status = xbee_dev_tick(&my_xbee);
-                        if (status < 0)
-                        {
-                            printf("Error %d from xbee_dev_tick().\n", status);
-                            //return -1;
-                        }
-
-                        delay(3000);
-                        status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                        if (status < 0) 
-                        {
-                            printf("error %d sending data\n", status);
-
-                            
-                        }
-                        else 
-                        {
-                            
-                        }
-
-                        printf("sent message id 0x%02X\n", status);
-                        printf("sent message id 0x%s\n", PING_REQUEST);
-                    }
-
-                    // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
-                    // status = sendUserDataRelayAPIFrame(&my_xbee, MQTT_START_REQUEST, sizeof PING_REQUEST);
-                    //        status = xbee_user_data_relay_tx(&my_xbee, iface,
-                    //                                         cmdstr, strlen(cmdstr));
-                    // if (status < 0) {
-                    //     USBSerial.printf("error %d sending data\n", status);
-                    // } else {
-                    //     USBSerial.printf("sent message id 0x%02X\n", status);
-                    //     USBSerial.printf("sent message id 0x%s\n", PING_REQUEST);
-                    // }
-
-
-            }
-
-
-
-            ReceivedInput = InputType::NONE;
         }
-        break;
+
+        // ==================== Initialization COMMAND ============================
+
+        if (USBSerialRXstr.equalsIgnoreCase("I\r") == true)
+        {
+            DEBUG("Init XBee Command Received");
+
+            // initialize the serial and device layer for this XBee device
+            DEBUG("Calling xbee_dev_init()");
+            XBEE_SERPORT.ser = &Serial1;
+            XBEE_SERPORT.baudrate = 115200;
+            strcpy(XBEE_SERPORT.portname, "Serial1");
+            XBEE_SERPORT.pin_rx = 18;
+            XBEE_SERPORT.pin_tx = 17;
+            if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL))
+            {
+                DEBUG("Failed to initialize device.\n");
+                while (1)
+                    ;
+            }
+
+            // Initialize the AT Command layer for this XBee device and have the
+            // driver query it for basic information (hardware version, firmware version,
+            // serial number, IEEE address, etc.)
+            DEBUG("Calling xbee_cmd_init_device");
+            DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
+            DEBUG("Waiting for driver to query the XBee device...\n");
+            do
+            {
+                xbee_dev_tick(&my_xbee);
+                status = xbee_cmd_query_status(&my_xbee);
+            } while (status == -EBUSY);
+            if (status)
+            {
+                DEBUG("Error: (" + String(status) + ") waiting for query to complete.\n");
+            }
+
+            // report on the settings
+            xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
+        }
+
+        // ==================== Client Publish Packets ============================
+
+        if (USBSerialRXstr.equalsIgnoreCase("Connect\r") == true)
+        {
+            DEBUG("Connect Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            connect_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.host, "71.8.150.180");
+            strcpy(data.lastWillMessage, "Disconnected");
+            strcpy(data.lastWillTopic, "unit/vp01234/connection");
+            strcpy(data.username, "");
+            strcpy(data.password, "");
+            strcpy(data.unitname, "vp01234");
+            data.cleanSession = ACE_TRUE;
+            data.lastWillQos = 1;
+            data.port = 1883;
+            data.lastWillRetain = ACE_TRUE;
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::CONNECT;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        if (USBSerialRXstr.equalsIgnoreCase("Connection\r") == true)
+        {
+            DEBUG("Connection Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            connection_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.TopicName, "connection");
+            data.qos = 1;
+            data.retainFlag = ACE_TRUE;
+            strcpy(data.status, "Online");
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::CONNECTION;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        if (USBSerialRXstr.equalsIgnoreCase("Data\r") == true)
+        {
+            DEBUG("Data Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            data_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.TopicName, "data");
+            data.qos = 1;
+            data.retainFlag = ACE_FALSE;
+            strcpy(data.timeStampUTC, "2020-09-11T08:02:17:350Z");
+
+            data.powerOn = ACE_TRUE;
+            data.ignitionOn = ACE_TRUE;
+            data.eventCode = 90;
+            data.cellStrength = 64;
+            data.alarmOn = ACE_TRUE;
+            data.leftTemp = 752;
+            data.rightTemp = 746;
+            data.stallSensorPresent = ACE_TRUE;
+            data.stallCount = 0;
+            data.batteryVoltage = 141;
+            strcpy(data.doorPopUTC, "2020-09-11T08:02:17:350Z");
+            data.version = 2;
+
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::DATA;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        if (USBSerialRXstr.equalsIgnoreCase("Status\r") == true)
+        {
+            DEBUG("Status Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            status_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.TopicName, "status");
+            data.qos = 1;
+            data.retainFlag = ACE_FALSE;
+
+            strcpy(data.unitID, "V550B01100#12344");
+            strcpy(data.unitname, "VP01234");
+            strcpy(data.ctrlHeadSerialNumber, "09B");
+            strcpy(data.unitFirmwareVersion, "C502E4061G10165");
+            strcpy(data.modemModel, "SARA-R410M-02B");
+            strcpy(data.modemFirmwareVersion, "L0.0.00.00.05.08");
+            strcpy(data.carrierCode, "A1");
+            strcpy(data.mobileEquipmentID, "356726108107145");
+            strcpy(data.integratedCircuitCardID, "89148000005057376071");
+            data.doorPopCount = 3416;
+
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::STATUS;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        if (USBSerialRXstr.equalsIgnoreCase("Log\r") == true)
+        {
+            DEBUG("Log Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            log_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.TopicName, "logs");
+            data.qos = 1;
+            data.retainFlag = ACE_FALSE;
+
+            strcpy(data.timeStampUTC, "2023-10-24T08:02:17.350Z");
+            data.type = 0;
+            strcpy(data.message, "Example Log Text");
+
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::LOG;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        // ==================== Client Subscribe Packets ============================
+
+        if (USBSerialRXstr.equalsIgnoreCase("Config\r") == true)
+        {
+            DEBUG("Config Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            config_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.TopicName, "config");
+            data.qos = 1;
+            data.retainFlag = ACE_TRUE;
+
+            strcpy(data.serverDomain, "acek9server.com");
+            strcpy(data.firmwareVersion, "16_7");
+            strcpy(data.firmwareChecksum, "17B8D93B3C2F01F07358615AA182D4");
+            strcpy(data.firmwareURL, "https://acek9server.com/AceK9_VIM-V16_7-201201.bin");
+            data.heartbeatInterval = 600;
+            data.temperatureInterval = 180;
+            data.temperatureDelta = 3;
+            data.connectTimeout = 60;
+            data.registrationFailureLimit = 3;
+            data.hotAlarmtemperature = 90;
+            data.coldAlarmTemperature = 32;
+            data.keepAliveInterval = 60;
+            data.LoggingLevel = 2;
+            data.assignmentStatus = 1;
+
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::CONFIG;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        if (USBSerialRXstr.equalsIgnoreCase("Command\r") == true)
+        {
+            DEBUG("Command Command Received");
+
+            int ReadAttempts = 0;
+            const int MAX_READ_ATTEMPTS = 3;
+            command_packet data;
+            memset(&data, 0, sizeof(data));
+            strcpy(data.TopicName, "command");
+            data.qos = 1;
+            data.retainFlag = ACE_TRUE;
+
+            strcpy(data.command, "Restart");
+
+            uint32_t crc = crc32(0, (unsigned char *)&data, sizeof(data));
+
+            uint8_t *payload = (uint8_t *)malloc(sizeof(data) + 5);
+            if (payload == nullptr)
+            {
+                Serial.println("Out of memory");
+                while (1)
+                    ;
+            }
+            payload[0] = (uint8_t)COMMAND_ID::COMMAND;
+            memcpy(payload + 1, &crc, sizeof(uint32_t));
+            memcpy(payload + 5, &data, sizeof(data));
+
+            // one or the other of the following two code blocks
+            // memcpy(tmp+1,&data,sizeof(data));
+            // status = sendUserDataRelayAPIFrame(&my_xbee, tmp, sizeof(data)+1); // no crc
+            Serial.printf("CRC-32: 0x%lx\n", crc);
+            hex_dump2(payload, sizeof(data) + 5, HEX_DUMP_FLAG_OFFSET);
+            status = sendUserDataRelayAPIFrame(&my_xbee, (const char *)payload, sizeof(data) + 5);
+            free(payload);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // printf("sent message id 0x%s\n", PING_REQUEST);
+
+            if (status < 0)
+            {
+                printf("error %d sending data\n", status);
+            }
+            else
+            {
+                while (ReadAttempts < MAX_READ_ATTEMPTS)
+                {
+                    status = xbee_dev_tick(&my_xbee);
+                    if (status < 0)
+                    {
+                        printf("Error %d from xbee_dev_tick().\n", status);
+                        // return -1;
+                    }
+
+                    delay(3000);
+
+                    ReadAttempts++;
+                }
+
+                if (ReadAttempts == MAX_READ_ATTEMPTS)
+                {
+                    DEBUG("Read Attempts Timed Out");
+                }
+            }
+        }
+
+        // ==================== AT COMMANDS ============================
+        if (USBSerialRXstr.substring(0,2).equalsIgnoreCase("AT") == true)
+        {
+            char sz[3];
+            memcpy(sz,USBSerialRXstr.c_str()+2,2);
+            sz[2]=0;
+            int16_t request = xbee_cmd_create(&my_xbee, sz);
+            if (request < 0)
+            {
+                // Note that strerror() expects the positive error value
+                // (what would have been stored in errno) so we have to
+                // negate the xbee_cmd_create() return value.
+                Serial.printf("Error creating request: %d\n",
+                              request, strerror(-request));
+            }
+            else
+            {
+
+                Serial.println("Sending command to xbee");
+                // if (ieee)
+                // {
+                //     xbee_cmd_set_target( request, ieee, WPAN_NET_ADDR_UNDEFINED);
+                // }
+                at_cmd_recv = false;
+                xbee_cmd_set_callback(request, at_cmd_callback, NULL);
+                xbee_cmd_send(request);
+            }
+            int ReadAttempts = 0;
+            while (ReadAttempts < 3 && at_cmd_recv==false)
+            {
+                status = xbee_dev_tick(&my_xbee);
+                if (status < 0)
+                {
+                    printf("Error %d from xbee_dev_tick().\n", status);
+                    // return -1;
+                }
+
+                delay(3000);
+
+                ReadAttempts++;
+            }
+
+            if (ReadAttempts == 3)
+            {
+                DEBUG("Read Attempts Timed Out");
+            }
+        }
+
+        // ==================== ACECON COMMANDS ============================
+
+        if (USBSerialRXstr.equalsIgnoreCase("Read PPS\r") == true)
+        {
+            DEBUG("Read PPS Returned: " + String(digitalRead(ACECON_PPS_IN)));
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Read IGN\r") == true)
+        {
+            DEBUG("Read IGN Returned: " + String(digitalRead(ACECON_IGN_IN)));
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Read POP\r") == true)
+        {
+            DEBUG("Read POP Returned: " + String(digitalRead(ACECON_POP_IN)));
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Read ACEDATA RX\r") == true)
+        {
+            DEBUG("Read ACEDATA RX Returned: " + String(digitalRead(ACEDATA_RX)));
+        }
+
+        if (USBSerialRXstr.equalsIgnoreCase("Set PPS High\r") == true)
+        {
+            digitalWrite(ACECON_PPS_OUT, HIGH);
+            DEBUG("PPS Set High");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set PPS Low\r") == true)
+        {
+            digitalWrite(ACECON_PPS_OUT, LOW);
+            DEBUG("PPS Set Low");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set PPT High\r") == true)
+        {
+            digitalWrite(ACECON_PPT_OUT, HIGH);
+            DEBUG("PPT Set High");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set PPT Low\r") == true)
+        {
+            digitalWrite(ACECON_PPT_OUT, LOW);
+            DEBUG("PPT Set Low");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set HPS High\r") == true)
+        {
+            digitalWrite(ACECON_HPS_OUT, HIGH);
+            DEBUG("HPS Set High");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set HPS Low\r") == true)
+        {
+            digitalWrite(ACECON_HPS_OUT, LOW);
+            DEBUG("HPS Set Low");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set ALM High\r") == true)
+        {
+            digitalWrite(ACECON_ALM_OUT, HIGH);
+            DEBUG("ALM Set High");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set ALM Low\r") == true)
+        {
+            digitalWrite(ACECON_ALM_OUT, LOW);
+            DEBUG("ALM Set Low");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set ACEDATA High\r") == true)
+        {
+            digitalWrite(ACEDATA_TX, HIGH);
+            DEBUG("ACEDATA TX Set High");
+        }
+        if (USBSerialRXstr.equalsIgnoreCase("Set ACEDATA Low\r") == true)
+        {
+            digitalWrite(ACEDATA_TX, LOW);
+            DEBUG("ACEDATA TX Set Low");
+        }
+
+        // ==================== XBEE Test COMMAND ============================
+
+        if (USBSerialRXstr.equalsIgnoreCase("T\r") == true)
+        {
+            DEBUG("XBee Test Command Received");
+
+            // initialize the serial and device layer for this XBee device
+            DEBUG("Calling xbee_dev_init()");
+            XBEE_SERPORT.ser = &Serial1;
+            XBEE_SERPORT.baudrate = 115200;
+            strcpy(XBEE_SERPORT.portname, "Serial1");
+            XBEE_SERPORT.pin_rx = 18;
+            XBEE_SERPORT.pin_tx = 17;
+            if (xbee_dev_init(&my_xbee, &XBEE_SERPORT, NULL, NULL))
+            {
+                DEBUG("Failed to initialize device.\n");
+                while (1)
+                    ;
+            }
+
+            // Initialize the AT Command layer for this XBee device and have the
+            // driver query it for basic information (hardware version, firmware version,
+            // serial number, IEEE address, etc.)
+            DEBUG("Calling xbee_cmd_init_device");
+            DEBUG("xbee_cmd_init_device returned:" + String(xbee_cmd_init_device(&my_xbee)));
+            DEBUG("Waiting for driver to query the XBee device...\n");
+            do
+            {
+                xbee_dev_tick(&my_xbee);
+                status = xbee_cmd_query_status(&my_xbee);
+            } while (status == -EBUSY);
+            if (status)
+            {
+                DEBUG("Error: (" + String(status) + ") waiting for query to complete.\n");
+            }
+
+            // report on the settings
+            xbee_dev_dump_settings(&my_xbee, XBEE_DEV_DUMP_FLAG_DEFAULT);
+
+            while (1)
+            {
+                status = xbee_dev_tick(&my_xbee);
+                if (status < 0)
+                {
+                    printf("Error %d from xbee_dev_tick().\n", status);
+                    // return -1;
+                }
+
+                delay(3000);
+                status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+                if (status < 0)
+                {
+                    printf("error %d sending data\n", status);
+                }
+                else
+                {
+                }
+
+                printf("sent message id 0x%02X\n", status);
+                printf("sent message id 0x%s\n", PING_REQUEST);
+            }
+
+            // status = sendUserDataRelayAPIFrame(&my_xbee, PING_REQUEST, sizeof PING_REQUEST);
+            // status = sendUserDataRelayAPIFrame(&my_xbee, MQTT_START_REQUEST, sizeof PING_REQUEST);
+            //        status = xbee_user_data_relay_tx(&my_xbee, iface,
+            //                                         cmdstr, strlen(cmdstr));
+            // if (status < 0) {
+            //     USBSerial.printf("error %d sending data\n", status);
+            // } else {
+            //     USBSerial.printf("sent message id 0x%02X\n", status);
+            //     USBSerial.printf("sent message id 0x%s\n", PING_REQUEST);
+            // }
+        }
+
+        ReceivedInput = InputType::NONE;
+    }
+    break;
 
     default:
-       
+
         break;
-    } 
-    
+    }
 
     lv_timer_handler();
     delay(3);
 }
 
+RXCode SendString(String TXStr)
+{
 
-
-RXCode SendString(String TXStr){
-    
     DEBUG("Sending: " + TXStr);
-    lv_textarea_set_text(ui_TextArea2,TXStr.c_str());
-    //Serial1.print(TXstr);
-    xbee_ser_write(nullptr,TXStr.c_str(),TXStr.length());
+    lv_textarea_set_text(ui_TextArea2, TXStr.c_str());
+    // Serial1.print(TXstr);
+    xbee_ser_write(nullptr, TXStr.c_str(), TXStr.length());
     if (WaitForOK() == false)
     {
         DEBUG("OK Not Recevied");
         return RXCode::ERR;
     }
-    
+
     DEBUG("OK Recevied");
     return RXCode::OK;
 }
 char recv_buf[16384];
 String ReceiveString(String TXStr)
-{   
+{
 
     DEBUG("Sending: " + TXStr);
-    lv_textarea_set_text(ui_TextArea2,TXStr.c_str());
-    //Serial1.print(TXStr);
-    xbee_ser_write(nullptr,TXStr.c_str(),TXStr.length());
+    lv_textarea_set_text(ui_TextArea2, TXStr.c_str());
+    // Serial1.print(TXStr);
+    xbee_ser_write(nullptr, TXStr.c_str(), TXStr.length());
     DEBUG("Waiting for response");
-    for(XBeeResponseTime_ms=0;XBeeResponseTime_ms<XBEE_RESPONSETIME_MAX && !Serial1.available();XBeeResponseTime_ms++) {delay(1);}
+    for (XBeeResponseTime_ms = 0; XBeeResponseTime_ms < XBEE_RESPONSETIME_MAX && !Serial1.available(); XBeeResponseTime_ms++)
+    {
+        delay(1);
+    }
 
-    if (XBeeResponseTime_ms>XBEE_RESPONSETIME_MAX)
+    if (XBeeResponseTime_ms > XBEE_RESPONSETIME_MAX)
     {
         DEBUG("TIMED OUT");
         return "TIMEOUT";
     }
     char ch = 0;
-    *recv_buf=0;
-    char* sz = recv_buf;
-    while(ch!='\r') {
+    *recv_buf = 0;
+    char *sz = recv_buf;
+    while (ch != '\r')
+    {
         int i = xbee_ser_getchar(nullptr);
-        if(-1<i) {
-            ch=i;
+        if (-1 < i)
+        {
+            ch = i;
             *sz++ = ch;
-            *sz=0;
+            *sz = 0;
         }
     }
     String RXstr(recv_buf);
-    //while(Serial1.available()){Serial1.read();}
+    // while(Serial1.available()){Serial1.read();}
 
     DEBUG("Received: " + RXstr);
-    
+
     return RXstr;
-    
 }
 
 bool WaitForOK()
-{   
-    
-    DEBUG("Waiting for response");
-    for(XBeeResponseTime_ms=0;XBeeResponseTime_ms<XBEE_RESPONSETIME_MAX && !Serial1.available();XBeeResponseTime_ms++) {delay(1);}
+{
 
-    if (XBeeResponseTime_ms>XBEE_RESPONSETIME_MAX)
+    DEBUG("Waiting for response");
+    for (XBeeResponseTime_ms = 0; XBeeResponseTime_ms < XBEE_RESPONSETIME_MAX && !Serial1.available(); XBeeResponseTime_ms++)
+    {
+        delay(1);
+    }
+
+    if (XBeeResponseTime_ms > XBEE_RESPONSETIME_MAX)
     {
         DEBUG("TIMED OUT");
         return false;
     }
-    while(Serial1.available()<3) { delay(1);}
-    xbee_ser_read(nullptr,recv_buf,sizeof(recv_buf));
+    while (Serial1.available() < 3)
+    {
+        delay(1);
+    }
+    xbee_ser_read(nullptr, recv_buf, sizeof(recv_buf));
     String RXstr(recv_buf);
     String OKstr = "OK\r";
 
@@ -1343,35 +1525,34 @@ bool WaitForOK()
 
     int count = RXstr.compareTo(OKstr);
 
-    if ( count > 0)
+    if (count > 0)
     {
         DEBUG("Greater than Zero: " + String(count));
-        return false;        
+        return false;
     }
     else if (count < 0)
     {
         DEBUG("Less than Zero: " + String(count));
-        return false; 
+        return false;
     }
     else
     {
-         DEBUG("EQUAL!: " + String(count));
-         return true;
-    }   
- 
-    
+        DEBUG("EQUAL!: " + String(count));
+        return true;
+    }
 }
 
 void DEBUG(String DebugStr)
 {
-    
+
     if (PrevDebugStr.compareTo(DebugStr) != 0)
     {
         if (DebugCount == 0)
         {
             PrevDebugStr = DebugStr;
             Serial.println(DebugStr);
-        }else
+        }
+        else
         {
             Serial.println("REPEAT" + String(DebugCount) + ": " + PrevDebugStr);
             Serial.println(DebugStr);
@@ -1380,8 +1561,6 @@ void DEBUG(String DebugStr)
     }
     else
     {
-       DebugCount++;
+        DebugCount++;
     }
 }
-
-
