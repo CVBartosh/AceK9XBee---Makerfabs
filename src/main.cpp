@@ -20,6 +20,77 @@
 //#include "parse_serial_args.h"
 
 
+static bool at_cmd_recv = false;
+int at_cmd_callback(const xbee_cmd_response_t FAR *response)
+{
+    at_cmd_recv = true;
+    bool_t printable;
+    uint_fast8_t length, i;
+    uint8_t status;
+    const uint8_t FAR *p;
+
+    Serial.printf("\nResponse for: %s\n", response->command.str);
+
+    if (response->flags & XBEE_CMD_RESP_FLAG_TIMEOUT)
+    {
+        Serial.println("(timed out)");
+        return XBEE_ATCMD_DONE;
+    }
+
+    status = response->flags & XBEE_CMD_RESP_MASK_STATUS;
+    if (status != XBEE_AT_RESP_SUCCESS)
+    {
+        Serial.printf("(error: %s)\n",
+                      (status == XBEE_AT_RESP_ERROR) ? "general" : (status == XBEE_AT_RESP_BAD_COMMAND) ? "bad command"
+                                                               : (status == XBEE_AT_RESP_BAD_PARAMETER) ? "bad parameter"
+                                                               : (status == XBEE_AT_RESP_TX_FAIL)       ? "Tx failure"
+                                                                                                        : "unknown error");
+        return XBEE_ATCMD_DONE;
+    }
+
+    length = response->value_length;
+    if (!length) // command sent successfully, no value to report
+    {
+        Serial.println("(success)");
+        return XBEE_ATCMD_DONE;
+    }
+
+    // check to see if we can print the value out as a string
+    printable = 1;
+    p = response->value_bytes;
+    for (i = length; printable && i; ++p, --i)
+    {
+        printable = isprint(*p);
+    }
+
+    if (printable)
+    {
+        Serial.printf("= \"%.*" PRIsFAR "\" ", length, response->value_bytes);
+    }
+    if (length <= 4)
+    {
+        // format hex string with (2 * number of bytes in value) leading zeros
+        Serial.printf("= 0x%0*" PRIX32 " (%" PRIu32 ")\n", length * 2, response->value,
+                      response->value);
+    }
+    else if (length <= 32)
+    {
+        // format hex string
+        Serial.printf("= 0x");
+        for (i = length, p = response->value_bytes; i; ++p, --i)
+        {
+            Serial.printf("%02X", *p);
+        }
+        Serial.println("");
+    }
+    else
+    {
+        Serial.printf("= %d bytes:\n", length);
+        hex_dump(response->value_bytes, length, HEX_DUMP_FLAG_TAB);
+    }
+
+    return XBEE_ATCMD_DONE;
+}
 
 
 //================================================== MY STUFF =========================================
@@ -78,6 +149,16 @@ bool WaitForOK();
 uint32_t DebugCount;
 String PrevDebugStr;
 void DEBUG(String DebugStr);
+
+#define ACECON_PPS_IN 9
+#define ACECON_IGN_IN 10
+#define ACECON_POP_IN 11
+#define ACECON_PPS_OUT 12
+#define ACECON_PPT_OUT 13
+#define ACECON_HPS_OUT 14
+#define ACECON_ALM_OUT 21
+#define ACEDATA_RX 47
+#define ACEDATA_TX 48
 
 xbee_dev_t my_xbee;
 
@@ -564,12 +645,20 @@ void setup() {
     Serial1.begin(115200, SERIAL_8N1, 18, 17);
 
     Serial.begin(115200);
- 
+
+    // initialize ACECON Pins
+    pinMode(ACECON_PPS_IN, INPUT);
+    pinMode(ACECON_IGN_IN, INPUT);
+    pinMode(ACECON_POP_IN, INPUT);
+    pinMode(ACECON_PPS_OUT, OUTPUT);
+    pinMode(ACECON_PPT_OUT, OUTPUT);
+    pinMode(ACECON_HPS_OUT, OUTPUT);
+    pinMode(ACECON_ALM_OUT, OUTPUT);
+
+    pinMode(ACEDATA_RX, INPUT);
+    pinMode(ACEDATA_TX, OUTPUT);
+
     DEBUG("Booted");
-
-
-
-
 }
 
 
@@ -1177,6 +1266,125 @@ void loop() {
 
             }
             
+            // ==================== AT COMMANDS ============================
+            if (USBSerialRXstr.substring(0,2).equalsIgnoreCase("AT") == true)
+        {
+            char sz[3];
+            memcpy(sz,USBSerialRXstr.c_str()+2,2);
+            sz[2]=0;
+            int16_t request = xbee_cmd_create(&my_xbee, sz);
+            if (request < 0)
+            {
+                // Note that strerror() expects the positive error value
+                // (what would have been stored in errno) so we have to
+                // negate the xbee_cmd_create() return value.
+                Serial.printf("Error creating request: %d\n",
+                              request, strerror(-request));
+            }
+            else
+            {
+
+                Serial.println("Sending command to xbee");
+                // if (ieee)
+                // {
+                //     xbee_cmd_set_target( request, ieee, WPAN_NET_ADDR_UNDEFINED);
+                // }
+                at_cmd_recv = false;
+                xbee_cmd_set_callback(request, at_cmd_callback, NULL);
+                xbee_cmd_send(request);
+            }
+            int ReadAttempts = 0;
+            while (ReadAttempts < 3 && at_cmd_recv==false)
+            {
+                status = xbee_dev_tick(&my_xbee);
+                if (status < 0)
+                {
+                    printf("Error %d from xbee_dev_tick().\n", status);
+                    // return -1;
+                }
+
+                delay(3000);
+
+                ReadAttempts++;
+            }
+
+            if (ReadAttempts == 3)
+            {
+                DEBUG("Read Attempts Timed Out");
+            }
+        }
+
+            // ==================== ACECON COMMANDS ============================
+
+            if (USBSerialRXstr.equalsIgnoreCase("Read PPS\r") == true)
+            {
+                DEBUG("Read PPS Returned: " + String(digitalRead(ACECON_PPS_IN)));
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Read IGN\r") == true)
+            {
+                DEBUG("Read IGN Returned: " + String(digitalRead(ACECON_IGN_IN)));
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Read POP\r") == true)
+            {
+                DEBUG("Read POP Returned: " + String(digitalRead(ACECON_POP_IN)));
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Read ACEDATA RX\r") == true)
+            {
+                DEBUG("Read ACEDATA RX Returned: " + String(digitalRead(ACEDATA_RX)));
+            }
+
+            if (USBSerialRXstr.equalsIgnoreCase("Set PPS High\r") == true)
+            {
+                digitalWrite(ACECON_PPS_OUT, HIGH);
+                DEBUG("PPS Set High");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set PPS Low\r") == true)
+            {
+                digitalWrite(ACECON_PPS_OUT, LOW);
+                DEBUG("PPS Set Low");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set PPT High\r") == true)
+            {
+                digitalWrite(ACECON_PPT_OUT, HIGH);
+                DEBUG("PPT Set High");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set PPT Low\r") == true)
+            {
+                digitalWrite(ACECON_PPT_OUT, LOW);
+                DEBUG("PPT Set Low");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set HPS High\r") == true)
+            {
+                digitalWrite(ACECON_HPS_OUT, HIGH);
+                DEBUG("HPS Set High");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set HPS Low\r") == true)
+            {
+                digitalWrite(ACECON_HPS_OUT, LOW);
+                DEBUG("HPS Set Low");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set ALM High\r") == true)
+            {
+                digitalWrite(ACECON_ALM_OUT, HIGH);
+                DEBUG("ALM Set High");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set ALM Low\r") == true)
+            {
+                digitalWrite(ACECON_ALM_OUT, LOW);
+                DEBUG("ALM Set Low");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set ACEDATA High\r") == true)
+            {
+                digitalWrite(ACEDATA_TX, HIGH);
+                DEBUG("ACEDATA TX Set High");
+            }
+            if (USBSerialRXstr.equalsIgnoreCase("Set ACEDATA Low\r") == true)
+            {
+                digitalWrite(ACEDATA_TX, LOW);
+                DEBUG("ACEDATA TX Set Low");
+            }
+
+
             // ==================== XBEE Test COMMAND ============================
 
             if(USBSerialRXstr.compareTo("T\r") == 0)

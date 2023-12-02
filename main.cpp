@@ -660,16 +660,16 @@ void setup()
     Serial.begin(115200);
 
     // initialize ACECON Pins
-    pinMode(ACECON_PPS_IN, INPUT);
-    pinMode(ACECON_IGN_IN, INPUT);
-    pinMode(ACECON_POP_IN, INPUT);
-    pinMode(ACECON_PPS_OUT, OUTPUT);
-    pinMode(ACECON_PPT_OUT, OUTPUT);
-    pinMode(ACECON_HPS_OUT, OUTPUT);
-    pinMode(ACECON_ALM_OUT, OUTPUT);
+    // pinMode(ACECON_PPS_IN, INPUT);
+    // pinMode(ACECON_IGN_IN, INPUT);
+    // pinMode(ACECON_POP_IN, INPUT);
+    // pinMode(ACECON_PPS_OUT, OUTPUT);
+    // pinMode(ACECON_PPT_OUT, OUTPUT);
+    // pinMode(ACECON_HPS_OUT, OUTPUT);
+    // pinMode(ACECON_ALM_OUT, OUTPUT);
 
-    pinMode(ACEDATA_RX, INPUT);
-    pinMode(ACEDATA_TX, OUTPUT);
+    // pinMode(ACEDATA_RX, INPUT);
+    // pinMode(ACEDATA_TX, OUTPUT);
 
     DEBUG("Booted");
 }
